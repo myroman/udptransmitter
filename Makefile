@@ -15,7 +15,7 @@ get_ifi_info_plus.o: get_ifi_info_plus.c
 	${CC} ${CFLAGS} -c get_ifi_info_plus.c ${UNP}
 
 prifinfo_plus.o: prifinfo_plus.c
-	${CC} ${CFLAGS} -c prifinfo_plus.c ${LIBS}
+	${CC} ${CFLAGS} -c prifinfo_plus.c ${UNP}
 
 server: server.o
 	${CC} ${FLAGS} -o server server.o ${LIBS}

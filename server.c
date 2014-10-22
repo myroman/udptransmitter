@@ -8,9 +8,9 @@
 //**************************** Socket Info Data Structure  *******************//
 typedef struct socketInfo{ //Remeber that this object is typedefed
 	int sockfd;
-	struct sockaddr *ip_addr;
-	struct sockaddr *net_mask;
-	struct sockaddr *subnet_addr; 
+	struct sockaddr_in *ip_addr;
+	struct sockaddr_in *net_mask;
+	struct sockaddr_in *subnet_addr; 
 } SocketInfo;
 
 SocketInfo * sockets_info;
@@ -144,16 +144,40 @@ int main (int argc, char ** argv){
 		printf("Out of memory! Exiting Program.\n ");
 		exit(0);
 	}
-	printf("%d\n", sockInfoLength);
-
-	for(ifi = get_ifi_info_plus(AF_INET, 1); ifi != NULL ; ifi= ifi->ifi_next){
+	printf("Socket Info Length: %d\n", sockInfoLength);
+	int i =0;
+	for(ifi = get_ifi_info_plus(AF_INET, 1); ifi != NULL ; ifi= ifi->ifi_next, i++){
+		
 		if((sa = ifi->ifi_addr) != NULL){
-			printf("%hu, %s\n", ifi->ifi_index,sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr)));
+			printf("IP: %s\n", sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr)));
+		}
+		if((sa = ifi->ifi_ntmaddr) != NULL){
+			printf("Network Mask: %s\n", sock_ntop(ifi->ifi_ntmaddr, sizeof(struct sockaddr)));
 		}
 		
-		//printf("HERE\n");
-		//printf("%s\n", Sock_ntop(ifi->ifi_brdaddr, sizeof(struct sockaddr)));
-		//printf("%s\n", sock_ntop(ifi->ifi_ntmaddr, sizeof(struct sockaddr)));
+		//Create the sockaddr_in structure for the IP address
+		char * ip_c = sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr));
+		struct sockaddr_in ip_s;
+		inet_pton(AF_INET, ip_c, &(ip_s.sin_addr));
+
+		//Create the sockaddr_in structure for the network mask address
+		char * netmask_c= sock_ntop(ifi->ifi_ntmaddr, sizeof(struct sockaddr));
+		struct sockaddr_in netmask_s;
+		inet_pton(AF_INET, netmask_c, &(netmask_s.sin_addr));
+		
+		//Bitwise and the IP address and newtwork mask
+		in_addr_t and_ip_netmask = ip_s.sin_addr.s_addr & netmask_s.sin_addr.s_addr;
+		
+		//Create the sockaddr_in structure for the subnet
+		struct in_addr a = {and_ip_netmask};
+		struct sockaddr_in subnet_s;
+		subnet_s.sin_addr = a;
+		
+		//Print out the dotted decimal of the subnet
+		printf("Subnet dotted decimal: %s\n", inet_ntoa(a));
+		
+		
+
 		printf("MTU: %d\n", (int)ifi->ifi_mtu);
 		if(ifi->ifi_next == NULL){
 			printf("EQUALS NULL\n");
