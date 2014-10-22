@@ -1,1 +1,3 @@
-Makefile
+*.o
+# Add here all binaries because we can't use wildcards to exclude them
+prifinfo_plus
