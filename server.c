@@ -249,6 +249,8 @@ int main (int argc, char ** argv){
 				len = sizeof(cliaddr);
 				n = recvfrom(sockets_info[i].sockfd, mesg, MAXLINE, 0, (SA*)&cliaddr, &len);
 				printf("READ from Socket: %s\n", mesg);
+				char * temp= sock_ntop((SA*)&cliaddr, sizeof(struct sockaddr_in));
+				printf("Client IP %s, port  %d.\n", temp, ntohs(cliaddr.sin_port));
 			}
 		}
 	}
