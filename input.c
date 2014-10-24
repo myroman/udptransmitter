@@ -8,7 +8,7 @@ int parseInput(InpCd* dest) {
 		return 1;
 	}
 	char buf[80];
-	int line = 0; int n=0;
+	int line = 0;
 	while(fgets(buf, 80, inputFile) != NULL)
 	{
 		int length = strlen(buf);
@@ -67,8 +67,7 @@ int parseInt(char* s, int* outInt) {
 	int l = strlen(s) - 1;
 	char* buf2=(char*)malloc(l);
 	memcpy(buf2, s, l);
-	int r = sscanf(s, "%d", outInt);	
-	printf("r=%d\n",r);
+	int r = sscanf(s, "%d", outInt);
 	free(buf2);
 	
 	return r != 1;//return 0 if r == 1

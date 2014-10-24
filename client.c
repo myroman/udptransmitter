@@ -8,9 +8,9 @@ int main()
 	if (parseInput(inputData) != 0) {
 		return 1;
 	}
-	printf("Ip: %s\n", inputData->ipAddrSrv);
-	printf("Port: %s\n", inputData->srvPort);
-	printf("SWS: %d\n", inputData->slidWndSize);
+	printf("Ip: %s", inputData->ipAddrSrv);
+	printf("Port: %s", inputData->srvPort);
+	printf("SWS: %d", inputData->slidWndSize);
 	
 	return 0;
 }
