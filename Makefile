@@ -8,7 +8,7 @@ FLAGS = -g -O2
 #CFLAGS = ${FLAGS} -I/home/tony/Documents/CSE533/unpv13e/lib
 CFLAGS = ${FLAGS} -I../../lib
 
-all: get_ifi_info_plus.o prifinfo_plus.o server testClient
+all: get_ifi_info_plus.o prifinfo_plus.o server testClient testClient2
 	${CC} -o prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o ${LIBS}
 
 get_ifi_info_plus.o: get_ifi_info_plus.c
@@ -27,5 +27,10 @@ testClient: testClient.o
 testClient.o: testClient.c
 	${CC} ${FLAGS} -c testClient.c ${UNP}
 
+testClient2: testClient2.o
+	${CC} ${FLAGS} -o testClient2 testClient2.o ${LIBS}
+testClient2.o: testClient2.c
+	${CC} ${FLAGS} -c testClient2.c ${UNP}
+
 clean:
-	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o testClient testClient.o
+	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o testClient testClient.o testClient2 testClient2.o

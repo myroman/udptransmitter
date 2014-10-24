@@ -28,7 +28,7 @@ int sockInfoLength = 0;
 typedef struct ClientInfo ClientInfo;//typeDef for the Clinet Info object
 typedef struct ClientInfo{
 	int pid;//Process ID used to remove from the DS when server is done serving client
-	struct sockaddr *clientAddress;
+	struct sockaddr_in clientAddress;
 	ClientInfo *right;
 	ClientInfo *left;
 } ClientInfo;
@@ -41,7 +41,8 @@ ClientInfo *tailClient = NULL;
 * Return 1 if it successful when adding a new client
 * Return -1 if Malloc fails
 */
-int addClientStruct(int processId, struct sockaddr *cAddr){
+int addClientStruct(int processId, struct sockaddr_in cAddr){
+	printf("In addclient struct\n");
 	int ret = 0; //return value of the funtion 
 
 	//Malloc the space for the new struct
@@ -54,11 +55,12 @@ int addClientStruct(int processId, struct sockaddr *cAddr){
 	}
 	
 	//Set the data members in the structure
-	newCli-> pid = processId;
+	newCli-> pid = processId; 
 	newCli-> clientAddress = cAddr;
 	
 	//Setup the chain
 	if(headClient == NULL && tailClient == NULL){
+		printf("EMPTY linked list.");
 		headClient = newCli;
 		tailClient = newCli;
 		ret = 1;
@@ -82,6 +84,26 @@ ClientInfo* findClientRecord(int processId){
 		if(ptr->pid == processId){
 			return ptr;
 		}
+		ptr = ptr->right;
+	}
+	return ptr;
+}
+ClientInfo* findClientRecord2(in_addr_t ip, in_port_t port){
+	printf("HERE fcr2\n");
+	ClientInfo *ptr = headClient;
+	while(ptr != NULL){
+		printf("LOOP fcr2\n");
+		int x = ntohs(ptr->clientAddress.sin_port);
+		int y = ntohs(port);
+		printf("x: %d, y: %d\n", x, y);
+		if( x== y){
+			printf("Ports match\n");
+		}
+		if(ptr->clientAddress.sin_port == port && ptr->clientAddress.sin_addr.s_addr == ip){
+			printf("MATCH fcr2\n");
+			return ptr;
+		}
+		ptr = ptr->right;
 	}
 	return ptr;
 }
@@ -213,7 +235,8 @@ int main (int argc, char ** argv){
 		sInfo.sockaddr = servaddr;
 
 		//Add the socketInfo into the arry
-		sockets_info[i] = sInfo;
+		//sockets_info[i] = sInfo; //memcpy needs to be done here
+		memcpy(&(sockets_info[i]), &sInfo, sizeof(SocketInfo));
 	}
 
 	//Setup Select on the Sockfd and select on all the sockfd in the sockets_info array
@@ -248,9 +271,28 @@ int main (int argc, char ** argv){
 				char mesg[MAXLINE];
 				len = sizeof(cliaddr);
 				n = recvfrom(sockets_info[i].sockfd, mesg, MAXLINE, 0, (SA*)&cliaddr, &len);
+				printf("SELECT read something2\n");
+				//Go Through the client linked list and see if you can find it.
+				cliaddr.sin_port = htons(50001);
+				ClientInfo *find = findClientRecord2(cliaddr.sin_addr.s_addr, cliaddr.sin_port);
+				if(find == NULL){
+					printf("CLIENT NOT FOUND\n");
+				}
+				else{
+					printf("CLIENT FOUND\n");
+				}
+				cliaddr.sin_port = htons(50001);
+				int aCSret = addClientStruct(100, cliaddr);
+				printf("aCSret value: %d\n", aCSret);
 				printf("READ from Socket: %s\n", mesg);
 				char * temp= sock_ntop((SA*)&cliaddr, sizeof(struct sockaddr_in));
 				printf("Client IP %s, port  %d.\n", temp, ntohs(cliaddr.sin_port));
+
+				
+				/*ClienInfo cInfo;
+				cInfo.pid = 100;
+				cInfo.addClientStruct =
+				*/
 			}
 		}
 	}
