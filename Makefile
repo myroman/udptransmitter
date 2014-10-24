@@ -34,4 +34,5 @@ testClient.o: testClient.c
 	${CC} ${FLAGS} -c testClient.c ${UNP}
 
 clean:
-	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o client client.o testClient testClient.o
+	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o 
+	client client.o testClient testClient.o input.o
