@@ -164,10 +164,10 @@ int main (int argc, char ** argv){
                 printf("Out of memory! Exiting Program.\n ");
                 exit(0);
         }
-        printf("Socket Info Length: %d\n", sockInfoLength);
+        //printf("Socket Info Length: %d\n", sockInfoLength);
         int i;
         for(i = 0, ifi = get_ifi_info_plus(AF_INET, 1); ifi != NULL ; ifi= ifi->ifi_next, i++){
-                
+                printf("** Interface number %d **\n", (i+1));
                 if((sa = ifi->ifi_addr) != NULL){
                         printf("IP Address: %s\n", sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr)));
                 }
@@ -253,7 +253,10 @@ int main (int argc, char ** argv){
                 }
                 maxfd++;
                 if(select(maxfd, &rset, NULL, NULL, NULL) < 0){
-                        err_quit("Error setting up select on all interfaces.");
+                        
+                        if(errno != EINTR){
+                        	err_quit("Error setting up select on all interfaces.");
+                        }
                 }
                 printf("Successfully setup Select.\n");
                 for(i = 0; i < sockInfoLength; i++){
@@ -290,7 +293,7 @@ int main (int argc, char ** argv){
                                 	int pid;
 	                                if((pid = fork()) == 0){
 	                                	//Child server process stuff goes here
-	                                	printf("Child pid: %d\n", pid);
+	                                	//printf("Child pid: %d\n", pid);
 
 	                                	//Go through the sockets info data structure and close all the listening sockets
 	                                	int j;
@@ -306,7 +309,7 @@ int main (int argc, char ** argv){
 	                                else{
 	                                	//parent server process goes here
 	                                	//Add child to the clients currently servering data structure
-	                                	printf("Child server process forked off\n");
+	                                	printf("Child server process forked off pid=%d\n", pid);
 	                                	int retCheck = addClientStruct(pid, &cliaddr);
 	                                	if(retCheck == 1){
 	                                		printf("Successfully added client record\n");
@@ -320,8 +323,6 @@ int main (int argc, char ** argv){
 	                                	}
 	                                }
                                 }
-                                
-                                
                         }
                 }
         }
