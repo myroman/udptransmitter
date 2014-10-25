@@ -53,6 +53,15 @@ typedef struct inputClientData InpCd;
 int parseInput(InpCd* dest);
 int parseInt(char* s, int* outInt);
 
+struct inputServerData
+{
+  int servPort;
+  int slidWndSize;
+};
+
+typedef struct inputServerData InpSd;
+int parseInputServer(InpSd* dest);
+
 //**************************** Socket Info Data Structure  *******************//
 typedef struct socketInfo{ //Remeber that this object is typedefed
         int sockfd;

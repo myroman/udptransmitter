@@ -130,8 +130,9 @@ int deleteClientRecord(ClientInfo * ptr){
 }
 
 //**************************** processedClient Data Structure *****************//
-void
-signalChildHandler(int signal){
+
+
+void signalChildHandler(int signal){
         pid_t pid;
         int stat;
         pid = wait(&stat);
@@ -145,13 +146,21 @@ signalChildHandler(int signal){
 
 
 int main (int argc, char ** argv){
+		//Register sigchild handler to pick up on exiting child server processes
         signal(SIGCHLD, signalChildHandler);
+
+        //Read from server.in file
+        InpSd* inputData = (InpSd*)malloc(sizeof(InpSd));	
+		if (parseInputServer(inputData) != 0) {
+			return 1;
+		}
+		printf("Server Port: %d, Sliding window size %d\n", inputData->servPort, inputData->slidWndSize);
         //int sockfd;
         struct ifi_info *ifi;
         //unsigned char *ptr;
         struct arpreq arpreq;
         struct sockaddr *sa;
-        int PORT = 50000;
+        //int PORT = 50000;
         fd_set rset;
         FD_ZERO(&rset);
         //sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -164,10 +173,10 @@ int main (int argc, char ** argv){
                 printf("Out of memory! Exiting Program.\n ");
                 exit(0);
         }
-        printf("Socket Info Length: %d\n", sockInfoLength);
+        //printf("Socket Info Length: %d\n", sockInfoLength);
         int i;
         for(i = 0, ifi = get_ifi_info_plus(AF_INET, 1); ifi != NULL ; ifi= ifi->ifi_next, i++){
-                
+                printf("** Interface number %d **\n", (i+1));
                 if((sa = ifi->ifi_addr) != NULL){
                         printf("IP Address: %s\n", sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr)));
                 }
@@ -204,10 +213,10 @@ int main (int argc, char ** argv){
                 bzero(&servaddr, sizeof(servaddr));
                 servaddr.sin_family = AF_INET;
                 servaddr.sin_addr = ip_addr;
-                servaddr.sin_port = htons(PORT);
+                servaddr.sin_port = htons(inputData->servPort);
 
                 if( (bind(sockfd, (SA*) &servaddr, sizeof(servaddr))) != 0){
-                        printf("Error binding IP Address %s, Port number %d\n", inet_ntoa(ip_addr), PORT);
+                        printf("Error binding IP Address %s, Port number %d\n", inet_ntoa(ip_addr), inputData->servPort);
                         exit(0);
                 }
                 printf("Sockfd: %d\n", sockfd);
@@ -253,7 +262,10 @@ int main (int argc, char ** argv){
                 }
                 maxfd++;
                 if(select(maxfd, &rset, NULL, NULL, NULL) < 0){
-                        err_quit("Error setting up select on all interfaces.");
+                        
+                        if(errno != EINTR){
+                        	err_quit("Error setting up select on all interfaces.");
+                        }
                 }
                 printf("Successfully setup Select.\n");
                 for(i = 0; i < sockInfoLength; i++){
@@ -290,7 +302,7 @@ int main (int argc, char ** argv){
                                 	int pid;
 	                                if((pid = fork()) == 0){
 	                                	//Child server process stuff goes here
-	                                	printf("Child pid: %d\n", pid);
+	                                	//printf("Child pid: %d\n", pid);
 
 	                                	//Go through the sockets info data structure and close all the listening sockets
 	                                	int j;
@@ -306,7 +318,7 @@ int main (int argc, char ** argv){
 	                                else{
 	                                	//parent server process goes here
 	                                	//Add child to the clients currently servering data structure
-	                                	printf("Child server process forked off\n");
+	                                	printf("Child server process forked off pid=%d\n", pid);
 	                                	int retCheck = addClientStruct(pid, &cliaddr);
 	                                	if(retCheck == 1){
 	                                		printf("Successfully added client record\n");
@@ -320,8 +332,6 @@ int main (int argc, char ** argv){
 	                                	}
 	                                }
                                 }
-                                
-                                
                         }
                 }
         }
