@@ -1,5 +1,8 @@
 *.o
 # Add here all binaries because we can't use wildcards to exclude them
 server
+client
 testClient
 prifinfo_plus
+testClient2
+tq

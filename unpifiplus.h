@@ -38,4 +38,19 @@ struct ifi_info *get_ifi_info_plus(int, int);
 struct ifi_info *Get_ifi_info_plus(int, int);
 void   free_ifi_info_plus(struct ifi_info *);
 
+struct inputClientData
+{
+	char* ipAddrSrv;
+	char* srvPort;
+	char* fileName;
+	int slidWndSize;//in datagram units
+	int rndSeed;
+	float dtLossProb;
+	int mean;
+};
+
+typedef struct inputClientData InpCd;
+int parseInput(InpCd* dest);
+int parseInt(char* s, int* outInt);
+
 #endif  /* __unp_ifi_plus_h */
