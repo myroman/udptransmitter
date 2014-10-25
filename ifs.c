@@ -57,6 +57,7 @@ int checkIfLocalNetwork(char* otherIp) {
 	
 	int i;
 	for (i = 0;i<ifsNumber;++i) {
+		printf("Interface #%d:\n", i+1);
 		printf("IP address: %s\n", inet_ntoa(clientSockets[i].ip_addr));
 		printf("Network mask: %s\n", inet_ntoa(clientSockets[i].netmask_addr));
 	}
@@ -74,9 +75,8 @@ int checkIfLocalNetwork(char* otherIp) {
 		struct in_addr otherSubnetmask;
 		otherSubnetmask.s_addr = otherAddr.s_addr & clientSockets[i].netmask_addr.s_addr;
 		
-		printf("Others subnet: %s\n", inet_ntoa(otherSubnetmask));
-		printf("Current IP:%s\n", inet_ntoa(clientSockets[i].ip_addr));
-		printf("Current subnet: %s\n", inet_ntoa(clientSockets[i].subnet_addr));
+		printf("Others subnet for network mask #%d: %s\n", i + 1, inet_ntoa(otherSubnetmask));
+		printf("Subnet #%d: %s\n", i + 1, inet_ntoa(clientSockets[i].subnet_addr));
 		if (otherSubnetmask.s_addr == clientSockets[i].subnet_addr.s_addr) {
 			++coincidences;
 			if (clientSockets[i].netmask_addr.s_addr > longestPrefix) {
