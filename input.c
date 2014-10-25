@@ -62,7 +62,44 @@ int parseInput(InpCd* dest) {
 	fclose(inputFile);	
 	return 0;
 }
-
+int parseInputServer(InpSd* dest){
+	char* fileName = "server.in";
+	FILE* inputFile = fopen(fileName, "rt");
+	if (inputFile == NULL) {
+		printf("Input file \"%s\" cannot be opened. Check if it exists.\n", fileName);
+		return 1;
+	}
+	char buf[80];
+	int line = 0;
+	while(fgets(buf, 80, inputFile) != NULL)
+	{
+		int length = strlen(buf);
+		if (length<=0) 
+			continue;
+		if (line == 7)
+			break;
+		switch(line)
+		{
+			case 0:				
+				if (parseInt(buf, &dest->servPort) != 0) {
+					printf("Couldn't parse slider window size\n");
+					return 1;
+				}		
+				break;
+			case 1:
+				if (parseInt(buf, &dest->slidWndSize) != 0) {
+					printf("Couldn't parse the seed for random values generator\n");
+					return 1;
+				}
+				break;
+			default:
+				break;
+		}		
+		++line;
+	}
+	fclose(inputFile);	
+	return 0;
+}
 int parseInt(char* s, int* outInt) {
 	int l = strlen(s) - 1;
 	char* buf2=(char*)malloc(l);

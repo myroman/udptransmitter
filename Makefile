@@ -9,8 +9,8 @@ get_ifi_info_plus.o: get_ifi_info_plus.c
 prifinfo_plus.o: prifinfo_plus.c
 	${CC} ${CFLAGS} -c prifinfo_plus.c ${UNP}
 
-server: server.o
-	${CC} ${FLAGS} -o server server.o ${LIBS}
+server: server.o input.o
+	${CC} ${FLAGS} -o server server.o  input.o ${LIBS}
 server.o: server.c
 	${CC} ${FLAGS} -c server.c ${UNP}	
 client: client.o input.o ifs.o
