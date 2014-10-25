@@ -53,4 +53,12 @@ typedef struct inputClientData InpCd;
 int parseInput(InpCd* dest);
 int parseInt(char* s, int* outInt);
 
+//**************************** Socket Info Data Structure  *******************//
+typedef struct socketInfo{ //Remeber that this object is typedefed
+        int sockfd;
+        struct in_addr ip_addr;
+        struct in_addr netmask_addr;
+        struct in_addr subnet_addr; 
+        struct sockaddr_in sockaddr;
+} SocketInfo;
 #endif  /* __unp_ifi_plus_h */

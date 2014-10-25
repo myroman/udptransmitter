@@ -1,16 +1,17 @@
 #include "unpifiplus.h"
 #include <stdio.h>
+#include "ifs.h"
 
 int main()
 {
 	InpCd* inputData = (InpCd*)malloc(sizeof(InpCd));	
-	printf("SIze to alloc: %d\n", sizeof(InpCd));
 	if (parseInput(inputData) != 0) {
 		return 1;
 	}
-	printf("Ip: %s", inputData->ipAddrSrv);
-	printf("Port: %s", inputData->srvPort);
-	printf("SWS: %d", inputData->slidWndSize);
+	
+	//determine if the server and client is one the same network
+	int isServerLocal = checkIfLocalNetwork(inputData->ipAddrSrv);
+	printf("Check the server is local: %d\n", isServerLocal);
 	
 	return 0;
 }

@@ -5,15 +5,6 @@
 #include "unp.h"
 
 
-//**************************** Socket Info Data Structure  *******************//
-typedef struct socketInfo{ //Remeber that this object is typedefed
-        int sockfd;
-        struct in_addr ip_addr;
-        struct in_addr netmask_addr;
-        struct in_addr subnet_addr; 
-        struct sockaddr_in sockaddr;
-} SocketInfo;
-
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
 //We will malloc space for this later when we know how many sockes we have
