@@ -130,8 +130,9 @@ int deleteClientRecord(ClientInfo * ptr){
 }
 
 //**************************** processedClient Data Structure *****************//
-void
-signalChildHandler(int signal){
+
+
+void signalChildHandler(int signal){
         pid_t pid;
         int stat;
         pid = wait(&stat);
@@ -145,13 +146,21 @@ signalChildHandler(int signal){
 
 
 int main (int argc, char ** argv){
+		//Register sigchild handler to pick up on exiting child server processes
         signal(SIGCHLD, signalChildHandler);
+
+        //Read from server.in file
+        InpSd* inputData = (InpSd*)malloc(sizeof(InpSd));	
+		if (parseInputServer(inputData) != 0) {
+			return 1;
+		}
+		printf("Server Port: %d, Sliding window size %d\n", inputData->servPort, inputData->slidWndSize);
         //int sockfd;
         struct ifi_info *ifi;
         //unsigned char *ptr;
         struct arpreq arpreq;
         struct sockaddr *sa;
-        int PORT = 50000;
+        //int PORT = 50000;
         fd_set rset;
         FD_ZERO(&rset);
         //sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -204,10 +213,10 @@ int main (int argc, char ** argv){
                 bzero(&servaddr, sizeof(servaddr));
                 servaddr.sin_family = AF_INET;
                 servaddr.sin_addr = ip_addr;
-                servaddr.sin_port = htons(PORT);
+                servaddr.sin_port = htons(inputData->servPort);
 
                 if( (bind(sockfd, (SA*) &servaddr, sizeof(servaddr))) != 0){
-                        printf("Error binding IP Address %s, Port number %d\n", inet_ntoa(ip_addr), PORT);
+                        printf("Error binding IP Address %s, Port number %d\n", inet_ntoa(ip_addr), inputData->servPort);
                         exit(0);
                 }
                 printf("Sockfd: %d\n", sockfd);
