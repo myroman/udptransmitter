@@ -28,7 +28,7 @@ int sockInfoLength = 0;
 typedef struct ClientInfo ClientInfo;//typeDef for the Clinet Info object
 struct ClientInfo{
         int pid;//Process ID used to remove from the DS when server is done serving client
-        struct sockaddr *clientAddress;
+        struct sockaddr_in clientAddress;
         ClientInfo *right;
         ClientInfo *left;
 };
@@ -41,7 +41,7 @@ ClientInfo *tailClient = NULL;
 * Return 1 if it successful when adding a new client
 * Return -1 if Malloc fails
 */
-int addClientStruct(int processId, struct sockaddr *cAddr){
+int addClientStruct(int processId, struct sockaddr_in *cAddr){
         int ret = 0; //return value of the funtion 
 
         //Malloc the space for the new struct
@@ -55,7 +55,7 @@ int addClientStruct(int processId, struct sockaddr *cAddr){
         
         //Set the data members in the structure
         newCli-> pid = processId;
-        newCli-> clientAddress = cAddr;
+        newCli-> clientAddress = *cAddr;
         
         //Setup the chain
         if(headClient == NULL && tailClient == NULL){
@@ -82,8 +82,21 @@ ClientInfo* findClientRecord(int processId){
                 if(ptr->pid == processId){
                         return ptr;
                 }
+                ptr = ptr->right;
         }
         return ptr;
+}
+
+ClientInfo* findClientRecord2(in_addr_t ip, in_port_t port){
+	ClientInfo *ptr = headClient;
+	while (ptr != NULL){
+		if(ptr->clientAddress.sin_addr.s_addr == ip && ptr->clientAddress.sin_port == port){
+			printf("Match found in clients.\n");
+			return ptr;
+		}
+		ptr = ptr-> right;
+	}
+	return ptr;
 }
 /*
 * This function will delete a client record from the linked list
@@ -152,32 +165,31 @@ int main (int argc, char ** argv){
         for(i = 0, ifi = get_ifi_info_plus(AF_INET, 1); ifi != NULL ; ifi= ifi->ifi_next, i++){
                 
                 if((sa = ifi->ifi_addr) != NULL){
-                        printf("IP: %s\n", sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr)));
+                        printf("IP Address: %s\n", sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr)));
                 }
                 if((sa = ifi->ifi_ntmaddr) != NULL){
-                        printf("Network Mask: %s\n", sock_ntop(ifi->ifi_ntmaddr, sizeof(struct sockaddr)));
+                        printf("Network Mask Address: %s\n", sock_ntop(ifi->ifi_ntmaddr, sizeof(struct sockaddr)));
                 }
                 
                 //Create the sockaddr_in structure for the IP address
                 char * ip_c = sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr));
                 in_addr_t ipaddr_bits = inet_addr(ip_c);
-                struct in_addr ip_addr;// = {ipaddr_bits};
+                struct in_addr ip_addr;
                 ip_addr.s_addr = ipaddr_bits;
-                printf("testing solaris ip: %s\n", ip_c);
+                //printf("testing solaris ip: %s\n", ip_c);
                 //Create the sockaddr_in structure for the network mask address
                 char * netmask_c= sock_ntop(ifi->ifi_ntmaddr, sizeof(struct sockaddr));
                 in_addr_t netmask_bits = inet_addr(netmask_c);
-                struct in_addr netmask_addr; //= {netmask_bits};
+                struct in_addr netmask_addr;
                 netmask_addr.s_addr = netmask_bits;
-                printf("testing solaris netmask: %s\n", netmask_c);
-        
+                //printf("testing solaris netmask: %s\n", netmask_c);
                 //Bitwise and the IP address and newtwork mask
                 in_addr_t and_ip_netmask = ipaddr_bits & netmask_bits;
                 //Create the sockaddr_in structure for the subnet
                 struct in_addr subnet_addr;// = {and_ip_netmask};
                 subnet_addr.s_addr = and_ip_netmask;    
                 //Print out the dotted decimal of the subnet
-                printf("Subnet dotted decimal: %s\n", inet_ntoa(subnet_addr));
+                printf("Subnet Address: %s\n", inet_ntoa(subnet_addr));
                 
                 //Create the listening socket 
 
@@ -254,6 +266,31 @@ int main (int argc, char ** argv){
                                 printf("READ from Socket: %s\n", mesg);
                                 char * temp= sock_ntop((SA*)&cliaddr, sizeof(struct sockaddr_in));
                                 printf("Client IP %s, port  %d.\n", temp, ntohs(cliaddr.sin_port));
+                                
+                                //Below is to test if find client works properly. Hard code the same IP to test
+                                cliaddr.sin_port= htons(50001);
+
+                                //Try to find the client in the currently serving data structure
+                                ClientInfo *findCli = findClientRecord2(cliaddr.sin_addr.s_addr, cliaddr.sin_port);
+                                ClientInfo *findCli2 = findClientRecord(100);
+                                if(findCli2!= NULL){
+                                	printf("Found Client by pid\n");
+                                }
+
+                                if(findCli != NULL){
+                                	printf("Client Found\n");
+                                }
+                                else{
+                                	addClientStruct(100, &cliaddr);
+                                }
+                                //Fork off the child process here
+                                int pid;
+                                if((pid = fork()) == 0){
+                                	//Child server process stuff goes here
+                                }
+                                else{
+                                	//parent server process goes here
+                                }
                         }
                 }
         }
