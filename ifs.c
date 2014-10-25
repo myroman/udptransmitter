@@ -47,7 +47,9 @@ void getInterfaces(SocketInfo* sockets_info) {
 	}	
 }
 
-int checkIfLocalNetwork(char* serverIp) {
+// Checks if otherIp is in the same network.
+// return 1 if it is on the same network, 0 otherwise.
+int checkIfLocalNetwork(char* otherIp) {
 	SocketInfo* clientSockets;
 	int ifsNumber = getSocketsNumber();
 	clientSockets = (SocketInfo*)malloc(sizeof(SocketInfo) * ifsNumber);
@@ -58,5 +60,32 @@ int checkIfLocalNetwork(char* serverIp) {
 		printf("IP address: %s\n", inet_ntoa(clientSockets[i].ip_addr));
 		printf("Network mask: %s\n", inet_ntoa(clientSockets[i].netmask_addr));
 	}
-	return 0;
+	
+	struct in_addr otherAddr;
+	int otherIpNet = inet_aton(otherIp, &otherAddr);
+	if (otherIpNet == 0) {
+		printf("Error: the other ip can't be converted to network\n");
+		return 0;
+	}
+	int coincidences = 0;
+	int longestPrefix = 0, longestPrefIdx = 0;
+	
+	for(i = 0;i < ifsNumber; ++i) {
+		struct in_addr otherSubnetmask;
+		otherSubnetmask.s_addr = otherAddr.s_addr & clientSockets[i].netmask_addr.s_addr;
+		
+		printf("Others subnet: %s\n", inet_ntoa(otherSubnetmask));
+		printf("Current IP:%s\n", inet_ntoa(clientSockets[i].ip_addr));
+		printf("Current subnet: %s\n", inet_ntoa(clientSockets[i].subnet_addr));
+		if (otherSubnetmask.s_addr == clientSockets[i].subnet_addr.s_addr) {
+			++coincidences;
+			if (clientSockets[i].netmask_addr.s_addr > longestPrefix) {
+				longestPrefix = clientSockets[i].netmask_addr.s_addr;
+				printf("A longer prefix found: %s\n", inet_ntoa(clientSockets[i].netmask_addr));
+				longestPrefIdx = i;
+				printf("Index of interface: %d\n",longestPrefIdx);
+			}
+		}		
+	}
+	return coincidences > 0;
 }
