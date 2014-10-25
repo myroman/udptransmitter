@@ -8,3 +8,4 @@ testClient2
 tq
 Make.defines
 *.orig
+*.in
