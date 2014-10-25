@@ -97,6 +97,8 @@ int parseInputServer(InpSd* dest){
 		}		
 		++line;
 	}
+	fclose(inputFile);	
+	return 0;
 }
 int parseInt(char* s, int* outInt) {
 	int l = strlen(s) - 1;
