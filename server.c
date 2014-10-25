@@ -139,9 +139,22 @@ int deleteClientRecord(ClientInfo * ptr){
 }
 
 //**************************** processedClient Data Structure *****************//
+void
+signalChildHandler(int signal){
+        pid_t pid;
+        int stat;
+        pid = wait(&stat);
+        printf("Server child handled: %d pid terminated\n", pid);
+        ClientInfo *toDelete = findClientRecord(pid);
+        if(deleteClientRecord(toDelete) == 1){
+        	printf("Successfully delete client info record\n");
+        }
+        return;
+}
 
 
 int main (int argc, char ** argv){
+        signal(SIGCHLD, signalChildHandler);
         //int sockfd;
         struct ifi_info *ifi;
         //unsigned char *ptr;
@@ -268,29 +281,56 @@ int main (int argc, char ** argv){
                                 printf("Client IP %s, port  %d.\n", temp, ntohs(cliaddr.sin_port));
                                 
                                 //Below is to test if find client works properly. Hard code the same IP to test
-                                cliaddr.sin_port= htons(50001);
+                                //cliaddr.sin_port= htons(50001);
 
                                 //Try to find the client in the currently serving data structure
                                 ClientInfo *findCli = findClientRecord2(cliaddr.sin_addr.s_addr, cliaddr.sin_port);
-                                ClientInfo *findCli2 = findClientRecord(100);
+                                /*ClientInfo *findCli2 = findClientRecord(100);
                                 if(findCli2!= NULL){
                                 	printf("Found Client by pid\n");
-                                }
+                                }*/
 
                                 if(findCli != NULL){
                                 	printf("Client Found\n");
                                 }
                                 else{
-                                	addClientStruct(100, &cliaddr);
+                                	
+                                	//For of the child process here
+                                	int pid;
+	                                if((pid = fork()) == 0){
+	                                	//Child server process stuff goes here
+	                                	printf("Child pid: %d\n", pid);
+
+	                                	//Go through the sockets info data structure and close all the listening sockets
+	                                	int j;
+	                                	for(j = 0; j < sockInfoLength; j++){
+	                                		if(i!= j){
+	                                			close(sockets_info[j].sockfd);//
+	                                			printf("Closed Socket at index %d\n", j);
+	                                		}
+	                                	}
+	                                	exit(0);
+
+	                                }
+	                                else{
+	                                	//parent server process goes here
+	                                	//Add child to the clients currently servering data structure
+	                                	printf("Child server process forked off\n");
+	                                	int retCheck = addClientStruct(pid, &cliaddr);
+	                                	if(retCheck == 1){
+	                                		printf("Successfully added client record\n");
+	                                	}
+	                                	else if( retCheck == 0){
+	                                		printf("Faild to add client record\n");
+	                                	}
+	                                	else{
+	                                		printf("Error malloc failed! Exiting...\n");
+	                                		exit(0);
+	                                	}
+	                                }
                                 }
-                                //Fork off the child process here
-                                int pid;
-                                if((pid = fork()) == 0){
-                                	//Child server process stuff goes here
-                                }
-                                else{
-                                	//parent server process goes here
-                                }
+                                
+                                
                         }
                 }
         }
