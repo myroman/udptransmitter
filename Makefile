@@ -12,15 +12,13 @@ prifinfo_plus.o: prifinfo_plus.c
 server: server.o
 	${CC} ${FLAGS} -o server server.o ${LIBS}
 server.o: server.c
-	${CC} ${FLAGS} -c server.c server.c ${UNP}	
+	${CC} ${FLAGS} -c server.c ${UNP}	
 client: client.o input.o ifs.o
 	${CC} ${FLAGS} -o client client.o input.o ifs.o ${LIBS}
 client.o: client.c 
-	${CC} ${FLAGS} -c client.c client.c ${UNP}	
+	${CC} ${FLAGS} -c client.c ${UNP}	
 input.o: input.c
-	${CC} ${FLAGS} -c input.c input.c ${UNP}
-ifs.o: ifs.c
-	${CC} ${FLAGS} -c ifs.c ifs.c ${UNP}	
+	${CC} ${FLAGS} -c input.c ${UNP}
 
 testClient: testClient.o
 	${CC} ${FLAGS} -o testClient testClient.o ${LIBS}

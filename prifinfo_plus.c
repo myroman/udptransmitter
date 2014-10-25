@@ -72,3 +72,4 @@ main(int argc, char **argv)
     free_ifi_info_plus(ifihead);
     exit(0);
 }
+

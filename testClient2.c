@@ -21,3 +21,4 @@ int main (int argc, char ** argv){
 	sendto(sockfd2, testmsg, strlen(testmsg), 0, (SA*) &servaddr, sizeof(servaddr));
 
 }
+
