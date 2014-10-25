@@ -1,12 +1,4 @@
-#UNP = -I/home/tony/Documents/CSE533/unpv13e/lib/
-UNP = -I../../lib/
-CC = gcc
-#LIBS = /home/tony/Documents/CSE533/unpv13e/libunp.a
-LIBS = ../../libunp.a
-FLAGS = -g -O2
-#CFLAGS = ${FLAGS} -I/home/courses/cse533/Stevens/unpv13e_solaris2.10/lib
-#CFLAGS = ${FLAGS} -I/home/tony/Documents/CSE533/unpv13e/lib
-CFLAGS = ${FLAGS} -I../../lib
+include Make.defines
 
 all: get_ifi_info_plus.o prifinfo_plus.o server client testClient testClient2
 	${CC} -o prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o ${LIBS}
@@ -39,5 +31,4 @@ testClient2.o: testClient2.c
 	${CC} ${FLAGS} -c testClient2.c ${UNP}
 
 clean:
-	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o 
-	client client.o testClient testClient.o input.o testClient2.o testClient2
+	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o client client.o testClient testClient.o input.o testClient2.o testClient2
