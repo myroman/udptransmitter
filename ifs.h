@@ -2,4 +2,4 @@
 
 int getSocketsNumber();
 void getInterfaces(SocketInfo* sockets_info);
-int checkIfLocalNetwork(char* otherIp);
+int checkIfLocalNetwork(const char* otherIp, char* matchedIp);
