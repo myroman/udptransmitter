@@ -3,7 +3,7 @@
 #include <net/if_arp.h>
 #include "get_ifi_info_plus.c"
 #include "unp.h"
-
+#include "dtghdr.h"
 
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
@@ -280,16 +280,32 @@ int main (int argc, char ** argv){
                             //that will server the client from here. 
                             printf("%d: SELECT read something\n", getpid());
 
-                            struct sockaddr_in cliaddr;
+                            struct sockaddr_in cliaddr; 
+                            //bzero(&cliaddr, sizeof(cliaddr));
+                            char* buf = malloc(500);
+                            MsgHdr rmsg;
+                            bzero(&rmsg, sizeof(MsgHdr));
+                            DtgHdr rHdr;
+                            bzero(&rHdr, sizeof(DtgHdr));
+                            fillHdr(&rHdr, &rmsg, buf, 500, (SA *)&cliaddr, sizeof(cliaddr));
                             int n;
-                            socklen_t len;
-                            char mesg[MAXLINE];
-                            len = sizeof(cliaddr);
-                            n = recvfrom(sockets_info[i].sockfd, mesg, MAXLINE, 0, (SA*)&cliaddr, &len);
-                            printf("READ from Socket: %s\n", mesg);
-                            char * temp= sock_ntop((SA*)&cliaddr, sizeof(struct sockaddr_in));
-                            printf("Client IP %s, port  %d.\n", temp, ntohs(cliaddr.sin_port));
+                            if ((n = recvmsg(sockets_info[i].sockfd, &rmsg, 0)) == -1) {
+                                err_quit("Error on recvmsg\n");
+                            }
+                            printf("n:%d\n", n);
+                            char* fileName = (char*)rmsg.msg_iov[1].iov_base;
+                            //fileName[rmsg.msg_iov[1].iov_len] = 0;
+                            printf("READ from Socket: %s\n", fileName);
                             
+
+
+                            char * temp; 
+                            if( (temp = sock_ntop((SA*)&cliaddr, sizeof(struct sockaddr_in))) == NULL){
+                                printf("Errno %s\n", strerror(errno));
+                            }
+                            printf("The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+                            //printf("Client IP %s, port  %d.\n", temp, cliaddr.sin_port);
+                           
                             //Below is to test if find client works properly. Hard code the same IP to test
                             //cliaddr.sin_port= htons(50001);
 
@@ -340,16 +356,11 @@ int main (int argc, char ** argv){
                                 	}
 									struct sockaddr_in transSock;
 									int transFd;
-									int transSockOptions;
-									if(localFlag == 1){
-										transSockOptions = MSG_DONTROUTE;
-									}
 
-									//OR
-
-									int optval;
-									setsockopt(transFd, SOL_SOCKET, SO_DONTROUTE, &optval, sizeof(optval));
-
+                                    int transSockOptions;
+                                    if (localFlag ==1 ){
+                                        transSockOptions = MSG_DONTROUTE;
+                                    }
 									transFd = socket(AF_INET, SOCK_DGRAM, 0);
 									bzero(&transSock, sizeof(transSock));
 									transSock.sin_family = AF_INET;
@@ -364,7 +375,7 @@ int main (int argc, char ** argv){
 
 									socklen_t transLen;
 									getsockname(transFd,(SA*) &transSock, &transLen);
-									printf("IPServer Connection Socket: %s:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+									printf("IPServer Connection Socket: %s:%d\n", inet_ntoa(transSock.sin_addr), transSock.sin_port);
 
 									//Call connect 
 									if ((connect(transFd,(SA*) &cliaddr, sizeof(cliaddr))) != 0){
@@ -372,12 +383,36 @@ int main (int argc, char ** argv){
 										exit(0);
 									}
 									printf("Connection setup to IPClient.\n");
-                                	
-									//Send client the ephemeral port number
-									//now we can call send or write since defaul destination is set
-									//ssize_t send(int sockfd, const void *buf, size_t len, int flags);
-									send(transFd, (void*) &cliaddr.sin_port, strlen(cliaddr.sin_port), transSockOptions);
+									DtgHdr sendHdr;
+                                    bzero(&sendHdr, sizeof(sendHdr));
+                                    sendHdr.seq = 1;
+                                    sendHdr.ack = rHdr.seq + 1;
+                                    printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+                                    MsgHdr smsg;
+                                    bzero(&smsg, sizeof(MsgHdr));
+                                    printf("HERE\n");
+                                    printf("hi there\n");
+                                    char* buf2=malloc(10);
+                                    sprintf(buf2, "%d", transSock.sin_port);
+                                    fillHdr(&sendHdr, &smsg, buf2, 500, (SA *)&cliaddr, sizeof(cliaddr));
+                                    printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+                                    if (sendmsg(sockets_info[i].sockfd, &smsg, 0) == -1) {
+                                        printf("Error on sendmsg\n");
+                                        return;
+                                    }
 
+
+                                    //Here we need to see if we read anything on the new transFd socket
+                                    int retAck = handleConnectionAck(&sockets_info[i].sockfd, &transFd, &smsg);
+
+                                    if(retAck == 0){
+                                    	//Start sending File
+                                    	printf("Start sending file.\n");
+                                    }
+                                    else{
+                                    	//Anort
+                                    	printf("Didn't receive ACK from client. Exiting...\n");
+                                    }
                                 	exit(0);
 
                                 }
@@ -402,4 +437,42 @@ int main (int argc, char ** argv){
             }
     }
     exit(0);
+}
+
+int handleConnectionAck(int * listeningFd, int * connectionFd, MsgHdr * msg){
+	const int MAX_SECS_REPLY_WAIT = 5;
+	const int MAX_TIMES_TO_SEND_FILENAME = 3;
+	fd_set tset;
+	FD_ZERO(&tset);
+	int maxfd, i;
+	struct timeval tv;
+    
+	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; i++){
+		tv.tv_sec = 5;
+    	tv.tv_usec = 0; 
+		FD_ZERO(&tset);
+		FD_SET(*connectionFd, &tset);
+		maxfd = *listeningFd + 1;
+		if(i != 0){
+			//Send msg on connection socket
+			if (sendmsg(*connectionFd, msg, 0) == -1) {
+				printf("Error on sendmsg\n");
+				return;
+			}
+
+			//Send msg on listening socket as well
+			if (sendmsg(*listeningFd, msg, 0) == -1) {
+				printf("Error on sendmsg\n");
+				return;
+			}
+		}
+		if((select(maxfd, &tset, NULL, NULL, &tv))){
+			if(FD_ISSET(*connectionFd, &tset)){
+				//we received the ack
+				return 0;
+			}
+		}
+	}
+	return -1;
+
 }
