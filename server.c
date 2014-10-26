@@ -273,6 +273,7 @@ int main (int argc, char ** argv){
                                 //We found the socket that it matched on. Then we need to fork off the child process
                                 //that will server the client from here. 
                                 printf("SELECT read something\n");
+
                                 struct sockaddr_in cliaddr;
                                 int n;
                                 socklen_t len;
@@ -311,6 +312,18 @@ int main (int argc, char ** argv){
 	                                			close(sockets_info[j].sockfd);//
 	                                			printf("Closed Socket at index %d\n", j);
 	                                		}
+	                                	}
+
+	                                	//Check if the client is local or not
+
+	                                	//Step one if the server is localhost then we are done
+	                                	in_addr_t localHostConstant = inet_addr("127.0.0.1");
+	                                	if(sockets_info[i].ip_addr.s_addr == localHostConstant){
+	                                		printf("LocalHost Match found. IP server is local\n");
+	                                	}
+	                                	//check if IPClient is local to any of the interfaces
+	                                	else if(sockets_info[i].subnet_addr.s_addr == (cliaddr.sin_addr.s_addr & sockets_info[i].netmask_addr.s_addr)){
+	                                		printf("IPClient and IPServer are on the local using DONTROOTOPTION");
 	                                	}
 	                                	exit(0);
 
