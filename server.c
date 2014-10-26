@@ -3,7 +3,7 @@
 #include <net/if_arp.h>
 #include "get_ifi_info_plus.c"
 #include "unp.h"
-
+#include "dtghdr.h"
 
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
@@ -280,16 +280,32 @@ int main (int argc, char ** argv){
                             //that will server the client from here. 
                             printf("%d: SELECT read something\n", getpid());
 
-                            struct sockaddr_in cliaddr;
+                            struct sockaddr_in cliaddr; 
+                            //bzero(&cliaddr, sizeof(cliaddr));
+                            char* buf = malloc(500);
+                            MsgHdr rmsg;
+                            bzero(&rmsg, sizeof(MsgHdr));
+                            DtgHdr rHdr;
+                            bzero(&rHdr, sizeof(DtgHdr));
+                            fillHdr(&rHdr, &rmsg, buf, 500, (SA *)&cliaddr, sizeof(cliaddr));
                             int n;
-                            socklen_t len;
-                            char mesg[MAXLINE];
-                            len = sizeof(cliaddr);
-                            n = recvfrom(sockets_info[i].sockfd, mesg, MAXLINE, 0, (SA*)&cliaddr, &len);
-                            printf("READ from Socket: %s\n", mesg);
-                            char * temp= sock_ntop((SA*)&cliaddr, sizeof(struct sockaddr_in));
-                            printf("Client IP %s, port  %d.\n", temp, ntohs(cliaddr.sin_port));
+                            if ((n = recvmsg(sockets_info[i].sockfd, &rmsg, 0)) == -1) {
+                                err_quit("Error on recvmsg\n");
+                            }
+                            printf("n:%d\n", n);
+                            char* fileName = (char*)rmsg.msg_iov[1].iov_base;
+                            //fileName[rmsg.msg_iov[1].iov_len] = 0;
+                            printf("READ from Socket: %s\n", fileName);
                             
+
+
+                            char * temp; 
+                            if( (temp = sock_ntop((SA*)&cliaddr, sizeof(struct sockaddr_in))) == NULL){
+                                printf("Errno %s\n", strerror(errno));
+                            }
+                            printf("The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+                            //printf("Client IP %s, port  %d.\n", temp, cliaddr.sin_port);
+                           
                             //Below is to test if find client works properly. Hard code the same IP to test
                             //cliaddr.sin_port= htons(50001);
 
@@ -340,6 +356,10 @@ int main (int argc, char ** argv){
                                 	}
 									struct sockaddr_in transSock;
 									int transFd;
+                                    int transSockOptions;
+                                    if (localFlag ==1 ){
+                                        transSockOptions = MSG_DONTROUTE;
+                                    }
 									transFd = socket(AF_INET, SOCK_DGRAM, 0);
 									bzero(&transSock, sizeof(transSock));
 									transSock.sin_family = AF_INET;
@@ -354,7 +374,7 @@ int main (int argc, char ** argv){
 
 									socklen_t transLen;
 									getsockname(transFd,(SA*) &transSock, &transLen);
-									printf("IPServer Connection Socket: %s:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+									printf("IPServer Connection Socket: %s:%d\n", inet_ntoa(transSock.sin_addr), transSock.sin_port);
 
 									//Call connect connect(connSockFd, (SA *) &cliaddr, &length)
 									if ((connect(transFd,(SA*) &cliaddr, sizeof(cliaddr))) != 0){
@@ -364,7 +384,23 @@ int main (int argc, char ** argv){
 									printf("Connection setup to IPClient.\n");
                                 	
 									//Send client the ephemeral port number
-									
+									DtgHdr sendHdr;
+                                    bzero(&sendHdr, sizeof(sendHdr));
+                                    sendHdr.seq = 1;
+                                    sendHdr.ack = rHdr.seq + 1;
+                                    printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+                                    MsgHdr smsg;
+                                    bzero(&smsg, sizeof(MsgHdr));
+                                    printf("HERE\n");
+                                    printf("hi there\n");
+                                    char* buf2=malloc(10);
+                                    sprintf(buf2, "%d", transSock.sin_port);
+                                    fillHdr(&sendHdr, &smsg, buf2, 500, (SA *)&cliaddr, sizeof(cliaddr));
+                                    printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+                                    if (sendmsg(sockets_info[i].sockfd, &smsg, 0) == -1) {
+                                        printf("Error on sendmsg\n");
+                                        return;
+                                    }
 									
                                 	exit(0);
 

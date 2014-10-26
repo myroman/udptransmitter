@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "ifs.h"
 #include "unp.h"
+#include "dtghdr.h"
 
 void handleInteraction(int sockfd, int sockOptions, InpCd* inputData);
 
@@ -55,18 +56,21 @@ int main()
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(inputData->srvPort);
+	printf("server well-known port: %d\n", inputData->srvPort);
 	Inet_pton(AF_INET, inputData->ipAddrSrv, &servaddr.sin_addr);	
+	printf("The server address and port: %s:%d\n", inet_ntoa(servaddr.sin_addr), ntohs(servaddr.sin_port));
+	
 	if (connect(sockfd, (SA *) &servaddr, sizeof(servaddr)) < 0) {
 		printf("Error when connecting\n");
 		exit(1);
 	}
 	// Getting the server IP address and port
-	socklen_t srvsz = sizeof(servaddr);
+	socklen_t srvsz = sizeof(struct sockaddr_in);
 	if (getpeername(sockfd, (SA *)&servaddr, &srvsz) == -1) {
 		printf("Error on getpeername\n");
 		exit(1);
 	}
-	printf("The server address and port: %s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
+	printf("The server address and port: %s:%d\n", inet_ntoa(servaddr.sin_addr), ntohs(servaddr.sin_port));
 		
 	handleInteraction(sockfd, sockOptions, inputData);
 	return 0;
@@ -78,8 +82,25 @@ void handleInteraction(int sockfd, int sockOptions, InpCd* inputData) {
 	
 	int	n, i;
 	char sendline[MAXLINE], recvline[MAXLINE + 1];	
-	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; ++i) {		
-		send(sockfd, inputData->fileName, strlen(inputData->fileName), sockOptions);
+	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; ++i) {	
+		DtgHdr sendHdr;
+		bzero(&sendHdr, sizeof(DtgHdr));
+		sendHdr.seq = 1;
+
+		MsgHdr smsg;
+		bzero(&smsg, sizeof(MsgHdr));
+		printf(inputData->fileName);
+		fillHdr2(&sendHdr, &smsg, inputData->fileName, 500);
+
+		if (sendmsg(sockfd, &smsg, 0) == -1) {
+			printf("Error on sendmsg\n");
+			return;
+		}
+		char* fn = smsg.msg_iov[1].iov_base;
+		//fn[] = 0;
+		printf("%d\n", smsg.msg_iov[1].iov_len);
+		printf("Sent the file name %s...", fn);
+
 		if (readable_timeo(sockfd, MAX_SECS_REPLY_WAIT) > 0) {
 			printf("REPLY!\n");
 			break;
@@ -90,8 +111,18 @@ void handleInteraction(int sockfd, int sockOptions, InpCd* inputData) {
 		return;
 	}
 	
+	MsgHdr rmsg;
+	DtgHdr rHdr;
+	bzero(&rHdr, sizeof(DtgHdr));
 	char* buf = (char*)malloc(MAXLINE);
-	n = recv(sockfd, buf, MAXLINE, sockOptions);
-	buf[n] = 0;
-	printf("Received:%s", buf);
+	fillHdr2(&rHdr, &rmsg, buf, MAXLINE);
+	if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
+		printf("Error on recvmsg\n");
+		return;
+	}
+	
+	printf("n: %d\n", n);
+	buf = rmsg.msg_iov[1].iov_base;
+	//buf[n] = 0;
+	printf("Received:%s\n", buf);
 }
