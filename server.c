@@ -340,6 +340,16 @@ int main (int argc, char ** argv){
                                 	}
 									struct sockaddr_in transSock;
 									int transFd;
+									int transSockOptions;
+									if(localFlag == 1){
+										transSockOptions = MSG_DONTROUTE;
+									}
+
+									//OR
+
+									int optval;
+									setsockopt(transFd, SOL_SOCKET, SO_DONTROUTE, &optval, sizeof(optval));
+
 									transFd = socket(AF_INET, SOCK_DGRAM, 0);
 									bzero(&transSock, sizeof(transSock));
 									transSock.sin_family = AF_INET;
@@ -356,7 +366,7 @@ int main (int argc, char ** argv){
 									getsockname(transFd,(SA*) &transSock, &transLen);
 									printf("IPServer Connection Socket: %s:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
 
-									//Call connect connect(connSockFd, (SA *) &cliaddr, &length)
+									//Call connect 
 									if ((connect(transFd,(SA*) &cliaddr, sizeof(cliaddr))) != 0){
 										printf("Error connecting to the client. Exiting...");
 										exit(0);
@@ -364,8 +374,10 @@ int main (int argc, char ** argv){
 									printf("Connection setup to IPClient.\n");
                                 	
 									//Send client the ephemeral port number
-									
-									
+									//now we can call send or write since defaul destination is set
+									//ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+									send(transFd, (void*) &cliaddr.sin_port, strlen(cliaddr.sin_port), transSockOptions);
+
                                 	exit(0);
 
                                 }
