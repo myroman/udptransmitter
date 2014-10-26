@@ -139,7 +139,7 @@ void signalChildHandler(int signal){
         printf("Server child handled: %d pid terminated\n", pid);
         ClientInfo *toDelete = findClientRecord(pid);
         if(deleteClientRecord(toDelete) == 1){
-        	printf("Successfully delete client info record\n");
+        	printf("Successfully deleted client info record\n");
         }
         return;
 }
@@ -248,6 +248,7 @@ int main (int argc, char ** argv){
         //FD_ZERO(&rset);
         int maxfd;
         for(;;){
+		//printf("HERE\n");
                 //Set all she SOCK FDs to the set
                 int maxfd;
                 for(i = 0; i < sockInfoLength ; i++){
@@ -261,18 +262,23 @@ int main (int argc, char ** argv){
                         }
                 }
                 maxfd++;
+		selectRetry:
                 if(select(maxfd, &rset, NULL, NULL, NULL) < 0){
                         
                         if(errno != EINTR){
                         	err_quit("Error setting up select on all interfaces.");
                         }
+			else{
+				printf("EINTR caught on select. Retrying!\n");
+				goto selectRetry;
+			}
                 }
                 printf("Successfully setup Select.\n");
                 for(i = 0; i < sockInfoLength; i++){
                         if(FD_ISSET(sockets_info[i].sockfd, &rset)){
                                 //We found the socket that it matched on. Then we need to fork off the child process
                                 //that will server the client from here. 
-                                printf("SELECT read something\n");
+                                printf("%d: SELECT read something\n", getpid());
 
                                 struct sockaddr_in cliaddr;
                                 int n;
@@ -302,6 +308,7 @@ int main (int argc, char ** argv){
                                 	//For of the child process here
                                 	int pid;
 	                                if((pid = fork()) == 0){
+						sleep(1);
 	                                	//Child server process stuff goes here
 	                                	//printf("Child pid: %d\n", pid);
 
@@ -323,8 +330,10 @@ int main (int argc, char ** argv){
 	                                	}
 	                                	//check if IPClient is local to any of the interfaces
 	                                	else if(sockets_info[i].subnet_addr.s_addr == (cliaddr.sin_addr.s_addr & sockets_info[i].netmask_addr.s_addr)){
-	                                		printf("IPClient and IPServer are on the local using DONTROOTOPTION");
+							printf("IP Client : %s\n", inet_ntoa(cliaddr.sin_addr));
+	                                		printf("IPClient and IPServer are on the local using DONTROOTOPTION\n");
 	                                	}
+						
 	                                	exit(0);
 
 	                                }
