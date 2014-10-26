@@ -41,7 +41,7 @@ void   free_ifi_info_plus(struct ifi_info *);
 struct inputClientData
 {
 	char* ipAddrSrv;
-	char* srvPort;
+	int srvPort;
 	char* fileName;
 	int slidWndSize;//in datagram units
 	int rndSeed;

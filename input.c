@@ -23,8 +23,10 @@ int parseInput(InpCd* dest) {
 				strcpy(dest->ipAddrSrv, buf);			
 				break;
 			case 1:
-				dest->srvPort = (char*)malloc(length);
-				strcpy(dest->srvPort, buf);
+				if (parseInt(buf, &dest->srvPort) != 0) {
+					printf("Couldn't parse server port\n");
+					return 1;
+				}
 				break;
 			case 2:
 				dest->fileName = (char*)malloc(length);
