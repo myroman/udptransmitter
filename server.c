@@ -452,7 +452,7 @@ int handleConnectionAck(int * listeningFd, int * connectionFd, MsgHdr * msg){
     	tv.tv_usec = 0; 
 		FD_ZERO(&tset);
 		FD_SET(*connectionFd, &tset);
-		maxfd = *listeningFd + 1;
+		maxfd = *connectionFd + 1;
 		if(i != 0){
 			//Send msg on connection socket
 			if (sendmsg(*connectionFd, msg, 0) == -1) {

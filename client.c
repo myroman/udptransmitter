@@ -4,8 +4,7 @@
 #include "unp.h"
 #include "dtghdr.h"
 
-void handleInteraction(int sockfd, int sockOptions, InpCd* inputData);
-
+int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
 int main()
 {
 	InpCd* inputData = (InpCd*)malloc(sizeof(InpCd));	
@@ -13,8 +12,7 @@ int main()
 		return 1;
 	}
 	
-	//determine if the server and client is one the same network
-	
+	//determine if the server and client is one the same network	
 	char* clientIp = (char*)malloc(MAX_INPUT);
 	int isServerLocal = checkIfLocalNetwork(inputData->ipAddrSrv, clientIp);
 	
@@ -72,11 +70,39 @@ int main()
 	}
 	printf("The server address and port: %s:%d\n", inet_ntoa(servaddr.sin_addr), ntohs(servaddr.sin_port));
 		
-	handleInteraction(sockfd, sockOptions, inputData);
+	int newSrvPort, srvReplySeq;
+	int res = sendFileNameAndGetNewServerPort(sockfd, sockOptions, inputData, &newSrvPort, &srvReplySeq);
+	if (res == 0) {
+		exit(1);
+	}
+
+	printf("New srv port: %d\n", newSrvPort);
+	servaddr.sin_port = newSrvPort;
+
+	//close(sockfd);
+	if (connect(sockfd, (SA *) &servaddr, sizeof(servaddr)) < 0) {
+		printf("Error when reconnecting to new server port\n");
+		exit(1);
+	}
+	printf("%s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
+
+	DtgHdr sendHdr;
+	bzero(&sendHdr, sizeof(DtgHdr));
+	sendHdr.ack = srvReplySeq + 1;
+	printf("ack %d\n", sendHdr.ack);
+
+	MsgHdr smsg;
+	bzero(&smsg, sizeof(MsgHdr));
+	
+	fillHdr2(&sendHdr, &smsg, NULL, 0);
+	if (sendmsg(sockfd, &smsg, sockOptions) == -1) {
+		printf("Error on sendmsg\n");
+		return 1;
+	}
 	return 0;
 }
 
-void handleInteraction(int sockfd, int sockOptions, InpCd* inputData) {
+int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN) {
 	const int MAX_SECS_REPLY_WAIT = 5;
 	const int MAX_TIMES_TO_SEND_FILENAME = 3;
 	
@@ -94,12 +120,11 @@ void handleInteraction(int sockfd, int sockOptions, InpCd* inputData) {
 
 		if (sendmsg(sockfd, &smsg, 0) == -1) {
 			printf("Error on sendmsg\n");
-			return;
+			return 0;
 		}
 		char* fn = smsg.msg_iov[1].iov_base;
-		//fn[] = 0;
 		printf("%d\n", smsg.msg_iov[1].iov_len);
-		printf("Sent the file name %s...", fn);
+		printf("Sent the file name %s...\n", fn);
 
 		if (readable_timeo(sockfd, MAX_SECS_REPLY_WAIT) > 0) {
 			printf("REPLY!\n");
@@ -108,7 +133,7 @@ void handleInteraction(int sockfd, int sockOptions, InpCd* inputData) {
 	}
 	if (i == MAX_TIMES_TO_SEND_FILENAME) {
 		printf("Didn't receive an ACK after %d times\n", MAX_TIMES_TO_SEND_FILENAME);
-		return;
+		return 0;
 	}
 	
 	MsgHdr rmsg;
@@ -118,11 +143,16 @@ void handleInteraction(int sockfd, int sockOptions, InpCd* inputData) {
 	fillHdr2(&rHdr, &rmsg, buf, MAXLINE);
 	if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
 		printf("Error on recvmsg\n");
-		return;
+		return 0;
 	}
 	
+	DtgHdr* replyHdr = (DtgHdr*)rmsg.msg_iov[0].iov_base;
+	*srvSeqN = replyHdr->seq;
+	printf("seq:%u\n", *srvSeqN);
+
 	printf("n: %d\n", n);
-	buf = rmsg.msg_iov[1].iov_base;
-	//buf[n] = 0;
-	printf("Received:%s\n", buf);
+	printf("%s", buf);
+	*newPort = atoi(buf); //TODO: gotta check it
+	printf("New server ephemeral port: %d\n", *newPort);
+	return 1;
 }

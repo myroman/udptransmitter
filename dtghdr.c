@@ -8,7 +8,7 @@ void fillHdr(DtgHdr* hdr, MsgHdr* msg, void* buf, size_t bufSize, SA* sockAddr, 
 	msg->msg_iov = data;
 	msg->msg_iovlen = 2;
 	
-	data[0].iov_base = &hdr;
+	data[0].iov_base = hdr;
 	data[0].iov_len = sizeof(struct dtghdr);
 	data[1].iov_base = (char*)malloc(bufSize);
 	//printf("gonna memcpy\n");
