@@ -17,7 +17,6 @@ int getSocketsNumber() {
 
 void getInterfaces(SocketInfo* sockets_info) {
 	struct ifi_info *ifi;
-	//unsigned char *ptr;
 	struct sockaddr *sa;
 	
 	int i;
@@ -25,7 +24,7 @@ void getInterfaces(SocketInfo* sockets_info) {
 			//Create the sockaddr_in structure for the IP address
 			char * ip_c = sock_ntop(ifi->ifi_addr, sizeof(struct sockaddr));
 			in_addr_t ipaddr_bits = inet_addr(ip_c);
-			struct in_addr ip_addr;// = {ipaddr_bits};
+			struct in_addr ip_addr;
 			ip_addr.s_addr = ipaddr_bits;
 			
 			//Create the sockaddr_in structure for the network mask address
@@ -48,8 +47,10 @@ void getInterfaces(SocketInfo* sockets_info) {
 }
 
 // Checks if otherIp is in the same network.
-// return 1 if it is on the same network, 0 otherwise.
-int checkIfLocalNetwork(char* otherIp) {
+// returns 1 if it is on the same network, 
+// returns 2 if it is on the same host,
+// returns 0 otherwise.
+int checkIfLocalNetwork(char* otherIp, char* matchedIp) {
 	SocketInfo* clientSockets;
 	int ifsNumber = getSocketsNumber();
 	clientSockets = (SocketInfo*)malloc(sizeof(SocketInfo) * ifsNumber);
@@ -72,6 +73,10 @@ int checkIfLocalNetwork(char* otherIp) {
 	int longestPrefix = 0, longestPrefIdx = 0;
 	
 	for(i = 0;i < ifsNumber; ++i) {
+		if (clientSockets[i].ip_addr.s_addr == otherAddr.s_addr) { // same host
+			return 2;
+		}
+		
 		struct in_addr otherSubnetmask;
 		otherSubnetmask.s_addr = otherAddr.s_addr & clientSockets[i].netmask_addr.s_addr;
 		
@@ -87,5 +92,8 @@ int checkIfLocalNetwork(char* otherIp) {
 			}
 		}		
 	}
-	return coincidences > 0;
+	int isSameSubnet = coincidences > 0;
+	strcpy(matchedIp, inet_ntoa(clientSockets[longestPrefIdx].ip_addr));
+
+	return isSameSubnet;
 }
