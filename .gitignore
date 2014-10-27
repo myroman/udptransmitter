@@ -9,4 +9,5 @@ tq
 Make.defines
 *.orig
 *.in
+CircularBufferNode
 testChunkFile

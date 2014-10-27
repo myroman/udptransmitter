@@ -1,6 +1,6 @@
 include Make.defines
 
-all: get_ifi_info_plus.o prifinfo_plus.o server client testClient testClient2 testChunkFile
+all: get_ifi_info_plus.o prifinfo_plus.o server client testClient testClient2 testChunkFile CircularBufferNode
 	${CC} -o prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o ${LIBS}
 
 get_ifi_info_plus.o: get_ifi_info_plus.c
@@ -27,6 +27,11 @@ testChunkFile: testChunkFile.o
 testChunkFile.o: testChunkFile.c
 	${CC} ${FLAGS} -c testChunkFile.c ${UNP}
 
+CircularBufferNode: CircularBufferNode.o
+	${CC} ${FLAGS} -o CircularBufferNode CircularBufferNode.o  dtghdr.o ${LIBS}
+CircularBufferNode.o: CircularBufferNode.c
+	${CC} ${FLAGS} -c CircularBufferNode.c dtghdr.o ${UNP}	
+
 testClient: testClient.o
 	${CC} ${FLAGS} -o testClient testClient.o ${LIBS}
 testClient.o: testClient.c
@@ -38,4 +43,4 @@ testClient2.o: testClient2.c
 	${CC} ${FLAGS} -c testClient2.c ${UNP}
 
 clean:
-	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o client client.o testClient testClient.o input.o testClient2.o testClient2 testChunkFile testChunkFile.o ifs.o
+	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o client client.o testClient testClient.o input.o testClient2.o testClient2 testChunkFile testChunkFile.o ifs.o CircularBufferNode.o CircularBufferNode

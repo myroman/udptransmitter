@@ -3,19 +3,6 @@
 #include "dtghdr.h"
 #define MAX_DATAGRAM_SIZE 512
 
-int main(){
-	//chunkFile("client.in");
-	int dSize, numSegs, isDivisible;
-	sizetoAllocate("test.in", &dSize, &numSegs, &isDivisible);
-	printf ("dSize %d, numSegs %d\n", dSize, numSegs);
-	char ** charBuffer = malloc(sizeof(char*) * numSegs);
-	int i;
-	for(i = 0; i < numSegs; i++){
-		charBuffer[i] = malloc(dSize);
-	}
-	//char ** charBuffer = malloc(dSize * numSegs);
-	chunkFile("test.in", charBuffer);
-}
 
 int chunkFile(char * fn, char **buffer){
 	int chunkSize = MAX_DATAGRAM_SIZE - sizeof(struct dtghdr);
@@ -24,17 +11,18 @@ int chunkFile(char * fn, char **buffer){
 	sizetoAllocate(fn, &dSize, &numSegs, &isDiv);
 	printf("DSIZE %d\n", dSize);
 	int i;
-	FILE* ftpFile = fopen(fn, "rt");
+	FILE* ftpFile = fopen(fn, "r");
+	FILE* createNewFile = fopen("testWriteFile.txt", "w");
+	size_t ret;
 	if(isDiv == 0){
 		printf("is div = 0\n");
 		for(i = 0; i < numSegs; i++){
 			//printf("index : %d\n", i);
 			//char* b = (char*)malloc(dSize);
 			printf("Chunk %d \n", i);
-			while(fread(buffer[i], dSize , 1, ftpFile)){
-				printf("%s\n", buffer[i]);
-				break;
-			}
+			ret = fread(buffer[i], dSize , 1, ftpFile);
+			printf("%s\n", buffer[i]);
+			fwrite(buffer[i], dSize, 1,  createNewFile);
 		}
 	}
 	else{
@@ -43,17 +31,14 @@ int chunkFile(char * fn, char **buffer){
 		for(i = 0; i < numSegs; i++){
 			if(i == (numSegs-1)){
 				printf("Chunk %d \n", i);
-				while(fread(buffer[i], isDiv, 1, ftpFile)){
-					printf("%s\n",buffer[i]);
-					break;
-				}
-			}
+				ret = fread(buffer[i], isDiv, 1, ftpFile);
+				printf("%s\n",buffer[i]);
+				fwrite(buffer[i], dSize, 1,  createNewFile);			}
 			else{
 				printf("Chunk %d \n", i);
-				while(fread(buffer[i], dSize, 1, ftpFile)){
-						printf("%s\n", buffer[i]);
-						break;
-				}
+				ret = fread(buffer[i], dSize, 1, ftpFile);
+				printf("%s\n", buffer[i]);
+				fwrite(buffer[i], dSize, 1,  createNewFile);
 			}
 		}
 	}
@@ -65,7 +50,7 @@ int chunkFile(char * fn, char **buffer){
 }
 
 int sizetoAllocate(char* fn, int * dataSize, int * numberOfSegments, int * rem){
-	int dSize = 4;//MAX_DATAGRAM_SIZE - sizeof(struct dtghdr);
+	int dSize = MAX_DATAGRAM_SIZE - sizeof(struct dtghdr);
 	char* fileName = fn;
 	struct stat st;
 	if((stat(fileName, &st)) != 0){
@@ -89,4 +74,18 @@ int sizetoAllocate(char* fn, int * dataSize, int * numberOfSegments, int * rem){
 	*dataSize = dSize;
 	*numberOfSegments = numSegs;
 	return 0;
+}
+
+int main(){
+	//chunkFile("client.in");
+	int dSize, numSegs, isDivisible;
+	sizetoAllocate("testChunkFile.c", &dSize, &numSegs, &isDivisible);
+	printf ("dSize %d, numSegs %d\n", dSize, numSegs);
+	char ** charBuffer = malloc(sizeof(char*) * numSegs);
+	int i;
+	for(i = 0; i < numSegs; i++){
+		charBuffer[i] = malloc(dSize);
+	}
+	//char ** charBuffer = malloc(dSize * numSegs);
+	chunkFile("testChunkFile.c", charBuffer);
 }
