@@ -79,7 +79,7 @@ int availableWindowSize(){
 	return count;
 }
 
-CircularBufferNode * findSeqNode(int seqNum){
+CircularBufferNode * findSeqNode(uint32_t seqNum){
 	CircularBufferNode * ptr = start;
 	do{
 		if(ptr->seq == seqNum)
@@ -158,7 +158,11 @@ int main(){
 	printf("avail: %d\n", avail);
 	avail = getWindowSize();
 	printf("window Size %d \n", avail);
-
+	CircularBufferNode *a = findSeqNode(0);
+	if(a == NULL){
+		printf("NULL\n");
+	}
+	printf("valid\n");
 
 	//allocateCircularBuffer(1);
 	//avail = availableWindowSize();

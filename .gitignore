@@ -10,4 +10,5 @@ Make.defines
 *.orig
 *.in
 CircularBufferNode
+ClientCircularBuffer
 testChunkFile

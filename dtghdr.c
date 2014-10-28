@@ -20,3 +20,6 @@ void fillHdr(DtgHdr* hdr, MsgHdr* msg, void* buf, size_t bufSize, SA* sockAddr, 
 void fillHdr2(DtgHdr* hdr, MsgHdr* msg, void* buf, size_t bufSize) {
 	fillHdr(hdr, msg, buf, bufSize, NULL, 0);
 }
+char* extractBuffFromHdr(MsgHdr msg) {
+	return msg.msg_iov[1].iov_base;
+}
