@@ -15,11 +15,13 @@ void fillHdr(DtgHdr* hdr, MsgHdr* msg, void* buf, size_t bufSize, SA* sockAddr, 
 	//memcpy(data[1].iov_base, buf, bufSize);
 	data[1].iov_base = buf;
 	data[1].iov_len = bufSize;
-
 }
 void fillHdr2(DtgHdr* hdr, MsgHdr* msg, void* buf, size_t bufSize) {
 	fillHdr(hdr, msg, buf, bufSize, NULL, 0);
 }
 char* extractBuffFromHdr(MsgHdr msg) {
 	return msg.msg_iov[1].iov_base;
+}
+size_t getDtgBufSize() {	
+	return (MAX_DTG_SIZE - sizeof(struct dtghdr));
 }

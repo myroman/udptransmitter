@@ -1,10 +1,17 @@
 #include "unpifiplus.h"
 #include <stdio.h>
+#include <string.h>
 #include "ifs.h"
 #include "unp.h"
 #include "dtghdr.h"
+#include "utils.h"
+const int MAX_SECS_REPLY_WAIT = 5;
+const int MAX_TIMES_TO_SEND_FILENAME = 3;
+	
 
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
+int downloadFile(int sockfd, const char* fileName);
+
 int main()
 {
 	InpCd* inputData = (InpCd*)malloc(sizeof(InpCd));	
@@ -88,8 +95,9 @@ int main()
 
 	DtgHdr sendHdr;
 	bzero(&sendHdr, sizeof(DtgHdr));
-	sendHdr.ack = srvReplySeq + 1;
+	sendHdr.ack = srvReplySeq + 1;	
 	printf("ack %d\n", sendHdr.ack);
+	sendHdr.ack = htons(sendHdr.ack);
 
 	MsgHdr smsg;
 	bzero(&smsg, sizeof(MsgHdr));
@@ -99,13 +107,55 @@ int main()
 		printf("Error on sendmsg\n");
 		return 1;
 	}
+
+	downloadFile(sockfd, inputData->fileName);	
+
 	return 0;
 }
 
-int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN) {
-	const int MAX_SECS_REPLY_WAIT = 5;
-	const int MAX_TIMES_TO_SEND_FILENAME = 3;
-	
+int downloadFile(int sockfd, const char* fileName) {
+	char* dlFileName = malloc(strlen(fileName) + 4);
+	strcpy(dlFileName, "cli_");
+	strcat(dlFileName, fileName);
+	printf("I'll save into %s\n", dlFileName);
+
+	FILE* dlFile = fopen(dlFileName, "w+");
+	char* chunkBuf = malloc(getDtgBufSize());
+	int i, n;
+	for(;;) {
+		for(i = 0;i < MAX_TIMES_TO_SEND_FILENAME; ++i) {
+			if (readable_timeo(sockfd, 2) <= 0) {
+				continue; //TODO: add max number of timouts according to reqs
+			}
+			break;
+		}
+		if (i == MAX_TIMES_TO_SEND_FILENAME) {
+			return 1;
+		}
+
+		MsgHdr rmsg;
+		DtgHdr hdr;
+		bzero(&hdr, sizeof(hdr));
+		bzero(&rmsg, sizeof(rmsg));
+		
+		fillHdr2(&hdr, &rmsg, chunkBuf, getDtgBufSize());
+		if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
+			printf("Error on recvmsg\n");
+			return 0;
+		}
+		int chunkSize = ntohs(hdr.chl) != 0 ? ntohs(hdr.chl) : getDtgBufSize();
+		
+		printf("Yay! Received chunk seq=%d, size=%d\n", ntohs(hdr.seq), chunkSize);		
+		fwrite(chunkBuf, chunkSize, 1, dlFile);			
+	}
+	fclose(dlFile);
+	free(chunkBuf);
+	return 1;
+}
+
+int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN) {	
+	rmnl(inputData->fileName);
+
 	int	n, i;
 	char sendline[MAXLINE], recvline[MAXLINE + 1];	
 	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; ++i) {	
@@ -116,7 +166,8 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 		MsgHdr smsg;
 		bzero(&smsg, sizeof(MsgHdr));
 		printf(inputData->fileName);
-		fillHdr2(&sendHdr, &smsg, inputData->fileName, 500);
+		printf("Gonna send filename: %s\n", inputData->fileName);
+		fillHdr2(&sendHdr, &smsg, inputData->fileName, getDtgBufSize());
 
 		if (sendmsg(sockfd, &smsg, 0) == -1) {
 			printf("Error on sendmsg\n");
@@ -147,11 +198,7 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 	}
 	
 	DtgHdr* replyHdr = (DtgHdr*)rmsg.msg_iov[0].iov_base;
-	*srvSeqN = replyHdr->seq;
-	printf("seq:%u\n", *srvSeqN);
-
-	printf("n: %d\n", n);
-	printf("%s", buf);
+	*srvSeqN = ntohs(replyHdr->seq);	
 	*newPort = atoi(buf); //TODO: gotta check it
 	printf("New server ephemeral port: %d\n", *newPort);
 	return 1;

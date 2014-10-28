@@ -4,7 +4,9 @@
 #include "get_ifi_info_plus.c"
 #include "unp.h"
 #include "dtghdr.h"
+#include "fileChunking.h"
 
+void startFileTransfer(const char* fileName, int fd, int sockOpts);
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
 //We will malloc space for this later when we know how many sockes we have
@@ -282,12 +284,12 @@ int main (int argc, char ** argv){
 
                             struct sockaddr_in cliaddr; 
                             //bzero(&cliaddr, sizeof(cliaddr));
-                            char* buf = malloc(500);
+                            char* buf = malloc(getDtgBufSize());
                             MsgHdr rmsg;
                             bzero(&rmsg, sizeof(MsgHdr));
                             DtgHdr rHdr;
                             bzero(&rHdr, sizeof(DtgHdr));
-                            fillHdr(&rHdr, &rmsg, buf, 500, (SA *)&cliaddr, sizeof(cliaddr));
+                            fillHdr(&rHdr, &rmsg, buf, getDtgBufSize(), (SA *)&cliaddr, sizeof(cliaddr));
                             int n;
                             if ((n = recvmsg(sockets_info[i].sockfd, &rmsg, 0)) == -1) {
                                 err_quit("Error on recvmsg\n");
@@ -394,7 +396,7 @@ int main (int argc, char ** argv){
                                     printf("hi there\n");
                                     char* buf2=malloc(10);
                                     sprintf(buf2, "%d", transSock.sin_port);
-                                    fillHdr(&sendHdr, &smsg, buf2, 500, (SA *)&cliaddr, sizeof(cliaddr));
+                                    fillHdr(&sendHdr, &smsg, buf2, getDtgBufSize(), (SA *)&cliaddr, sizeof(cliaddr));
                                     printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
                                     if (sendmsg(sockets_info[i].sockfd, &smsg, 0) == -1) {
                                         printf("Error on sendmsg\n");
@@ -405,9 +407,11 @@ int main (int argc, char ** argv){
                                     //Here we need to see if we read anything on the new transFd socket
                                     int retAck = handleConnectionAck(&sockets_info[i].sockfd, &transFd, &smsg);
 
-                                    if(retAck == 0){
+                                    if(retAck == 0){                                        
+                                        printf("I'm here\n");//TODO: close listening socket inherited from parent
+
                                     	//Start sending File
-                                    	printf("Start sending file.\n");
+                                    	startFileTransfer(fileName, transFd, transSockOptions);
                                     }
                                     else{
                                     	//Anort
@@ -475,4 +479,22 @@ int handleConnectionAck(int * listeningFd, int * connectionFd, MsgHdr * msg){
 	}
 	return -1;
 
+}
+
+void startFileTransfer(const char* fileName, int fd, int sockOpts) {
+    int numChunks, i, res, lastChunkRem;
+    char** chunks = chunkFile(fileName, &numChunks, &lastChunkRem);
+    DtgHdr hdr;
+    MsgHdr msg;
+    for (i=0; i < numChunks; ++i) {
+        bzero(&hdr, sizeof(hdr));        
+        hdr.seq = htons(i+2);
+        if (i == numChunks -1) {
+            hdr.chl = htons(lastChunkRem);
+        }
+        bzero(&msg, sizeof(msg));     
+        fillHdr2(&hdr, &msg, chunks[i], getDtgBufSize());
+        res = sendmsg(fd, &msg, sockOpts);        
+    }
+    printf("File transfer complete\n");
 }
