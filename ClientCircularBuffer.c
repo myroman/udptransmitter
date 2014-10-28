@@ -3,18 +3,19 @@
 
 typedef struct ClientBufferNode ClientBufferNode;//typeDef for the Clinet Info object
 struct ClientBufferNode{
-    int occupied;//Process ID used to remove from the DS when server is done serving client
-    uint32_t  seqNum;
-    uint32_t ts;
-    MsgHdr * dataPayload;
-    ClientBufferNode *right;
-    ClientBufferNode *left;
+    int occupied;					//Symbolizes if the node is occupied or not. 1 means occupied, 0 means not occupied
+    uint32_t  seqNum;				//The squence number of the datagram residing in the node
+    MsgHdr * dataPayload;			//The contents of the message read in the buffer 
+    ClientBufferNode *right;		//Pointer to the right
+    ClientBufferNode *left;			//Pointer to the left
 };
 
-ClientBufferNode * cHead = NULL;
-ClientBufferNode * cTail = NULL;
-ClientBufferNode * start = NULL;
-ClientBufferNode * end = NULL;
+ClientBufferNode * cHead = NULL; 	//cHead is used to setup the circular buffer
+ClientBufferNode * cTail = NULL;	//cTail is used to setup the circular buffer
+ClientBufferNode * start = NULL;	//start is used to symbolize where the consumer can start reading from. Only modified by consumer
+ClientBufferNode * end = NULL;		//end is used to symbolize the last inorder segment received up until this point
+uint32_t currentAck = 0;			//Never touch this variable. To access call getAckToSend() function.
+
 /*
 * This function should be called ONCE. When the client starts up. 
 * @ numToAllocate this integer indicates how many nodes our buffer will hold
@@ -73,6 +74,7 @@ int allocateCircularBuffer(int numToAllocate){
 	end = cHead;
 	return 1;
 }
+
 /*
 * This function will give you the number of free spots on the circular buffer.
 * Use the return value for the advertised sending window 
@@ -89,16 +91,9 @@ int availableWindowSize(){
 	return count;
 }
 
-ClientBufferNode * findSeqNode(uint32_t seqNum){
-	ClientBufferNode * ptr = start;
-	do{
-		if(ptr->seqNum == seqNum)
-			return ptr;
-		ptr = ptr->right;
-	}while(ptr != end);
-	return NULL;
-}
-
+/*
+* This will give you the total size of the circular buffer
+*/
 int getWindowSize(){
 	int count = 0;
 	ClientBufferNode * ptr =cHead;
@@ -108,48 +103,38 @@ int getWindowSize(){
 	}while(ptr!= cHead);
 	return count;
 }
-int main(){
-	//allocateCircularBuffer(10);
-	//int avail = availableWindowSize();
-	//printf("avail: %d\n", avail);
-	allocateCircularBuffer(10);
-	int avail = availableWindowSize();
-	printf("avail: %d\n", avail);
-	avail = getWindowSize();
-	printf("window Size %d \n", avail);
-	ClientBufferNode *a = findSeqNode(0);
-	if(a == NULL){
-		printf("NULL\n");
-	}
-	printf("valid\n");
 
-	//allocateCircularBuffer(1);
-	//avail = availableWindowSize();
-	//printf("avail: %d\n", avail);
-	//printf("avail: %d\n", avail);
-	//printf("%d\n", sizeof(MsgHdr));
-	//printf("%d\n", sizeof(ClientBufferNode));
+/*
+* This function will give you the number to ack back to the server. Should be what tail is pointed to in essence
+*/
+uint32_t getAckToSend(){
+	return currentAck;
 }
 
 /*
-* This function will advance the end pointer to the last inorder datagram
+* This function will advance the end pointer to the last inorder datagram. Also update the currentAck
 */
 void updateInorderEnd(){
+	if(end->occupied == 0){
+		return;
+	}
+
 	ClientBufferNode * ptr = end;
 	do{
-		if(end->occupied == 0){
+		if(ptr->right->occupied == 0){
 			break;
 		}
 		ptr=ptr->right;// this will advance ptr
 	}while(ptr != end); //go around this loop a max of once
 	end = ptr;//set end to ptr;
+	currentAck = (ptr->seqNum) + 1;//sets the currentAck field 
 }
 
 /*
 * This function should be called when a new datagram is read. This function will add it to the circular buffer
 * @ s - uint32_t that will be the sequence number of the datagram received. This is of type int.
 * @ dp - this is the dataPayload of the datagram received. This is of type MsgHdr
-* @ return -1 failure, 1 success
+* @ return -1 failure, 1 success, 0 means the space is occupied not resetting data
 */
 int addDataPayload(uint32_t s, MsgHdr* dp){
 	if(availableWindowSize() == 0){
@@ -166,21 +151,30 @@ int addDataPayload(uint32_t s, MsgHdr* dp){
 		for(i = 0; i < difference; i++){
 			ptr = ptr->right;
 		}
+
+		if(ptr->occupied == 1){//if its occupied just return with 0
+			return 0;
+		}
 		ptr->seqNum = s;
 		ptr->dataPayload = dp;
 
 	}
 	updateInorderEnd();//this will update the pointer to the end
-	return 1;
+	return 1;//successfully added data
 }
 
+/*
+* This function is called when the consumer thread wakes up and wants to consume everything in the buffer
+* @fPointer - this is the file pointer that we will write the contents of the dataPayload to. 
+* @return - returns the number of nodes consumned
+*/
 int consumeBuffer(FILE * fPointer){
 	int count = 0;
 	if(start->occupied == 0){
 		return count;;//nothing to read yet
 	}
 
-	if(getWindowSize() > 2){
+	if(getWindowSize() >= 2){
 		do{
 			count++;
 			//Write out the data to the File
@@ -193,9 +187,7 @@ int consumeBuffer(FILE * fPointer){
 			start->dataPayload=NULL;
 			start = start->right;
 		}while(start != end->right);
-	}
-	else if( getWindowSize() == 1){
-
+		end = start;
 	}
 	else{
 		count++;
@@ -203,10 +195,13 @@ int consumeBuffer(FILE * fPointer){
 		MsgHdr *mptr = start->dataPayload;
 		char *toWrite = extractBuffFromHdr(*mptr);
 		fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
-		// ********
 
 		start->occupied = 0;
 		start->dataPayload=NULL;
 	}
+	return count;
+}
 
+int main() {
+	return 0;
 }
