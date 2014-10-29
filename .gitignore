@@ -9,6 +9,7 @@ tq
 Make.defines
 *.orig
 *.in
+*.txt
 CircularBufferNode
 ClientCircularBuffer
 testChunkFile

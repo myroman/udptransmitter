@@ -1,28 +1,33 @@
 #include "dtghdr.h"
 #include "unp.h"
 
-typedef struct CircularBufferNode CircularBufferNode;//typeDef for the Clinet Info object
-struct CircularBufferNode{
+typedef struct ServerBufferNode ServerBufferNode;//typeDef for the Clinet Info object
+struct ServerBufferNode{
     int occupied;//Process ID used to remove from the DS when server is done serving client
     uint32_t  seq;
     uint32_t ackCount;
     uint32_t ts;
     MsgHdr * dataPayload;
-    CircularBufferNode *right;
-    CircularBufferNode *left;
+    ServerBufferNode *right;
+    ServerBufferNode *left;
 };
 
-CircularBufferNode * cHead = NULL;
-CircularBufferNode * cTail = NULL;
-CircularBufferNode * start = NULL;
-CircularBufferNode * end = NULL;
-
+ServerBufferNode * cHead = NULL;
+ServerBufferNode * cTail = NULL;
+ServerBufferNode * start = NULL;
+ServerBufferNode * end = NULL;
+/*
+* This function will allocate the number of nodes in the Circular buffer
+* @ numToAllocate is the number of elements to allocate for
+* @ return -1 error
+* 			1 success
+*/
 int allocateCircularBuffer(int numToAllocate){
 	if(numToAllocate < 1){
 		printf("Invalid number of nodes to allocate...\n");
 		return -1;
 	}
-	CircularBufferNode * cptr = malloc(sizeof(CircularBufferNode) * numToAllocate);
+	ServerBufferNode * cptr = malloc(sizeof(ServerBufferNode) * numToAllocate);
 	if(cptr == NULL){
 		printf("Out of Memory. Exiting...");
 		return -1;
@@ -68,8 +73,12 @@ int allocateCircularBuffer(int numToAllocate){
 	end = cHead;
 	return 1;
 }
+/*
+* This will return the number of nodes that not currently occupied
+* @ return - the number of nodes that are free
+*/
 int availableWindowSize(){
-	CircularBufferNode* ptr = cHead;
+	ServerBufferNode* ptr = cHead;
 	int count = 0;
 	do{
 		if (ptr->occupied == 0)
@@ -79,22 +88,31 @@ int availableWindowSize(){
 	return count;
 }
 
-CircularBufferNode * findSeqNode(uint32_t seqNum){
-	CircularBufferNode * ptr = start;
+/*
+* This function will find a node in the circular buffer that has the interger specified by the sequence number
+* @ seqNum that identifies the sequence number taht needs to be found
+* @ return the pointer to the node containing the sequence number or a NULL pointer symbolizing that it was not found
+*/
+ServerBufferNode * findSeqNode(uint32_t seqNum){
+	ServerBufferNode * ptr = start;
 	do{
 		if(ptr->seq == seqNum)
 			return ptr;
 		ptr = ptr->right;
-	}while(ptr != end);
+	}while(ptr != end->right);
 	return NULL;
 }
-//Removes all the segments are less than the ack
-//Returns the number of Nodes removed 
-int removeNodesContents(int ack){
-	CircularBufferNode * ptr = start;
+/*
+* This function will remove all the rodes that have sequence number less than ack
+* This function should be called when an ack is received on the select
+* @ ack - is a unsigned uint32_t tha represents the ACK that was received on the server
+* @ return - is the number of elements in the NODE that received an ACK in the process
+*/ 
+int removeNodesContents(uint32_t ack){
+	ServerBufferNode * ptr = start;
 	int count = 0;
 	do{
-		if(ptr->seq < ack){
+		if(ptr->seq < ack && ptr->occupied == 1){
 			count++;
 			ptr->seq = 0;
 			ptr->occupied = 0;
@@ -104,25 +122,33 @@ int removeNodesContents(int ack){
 			//What should i do with MsgHdr 
 		}
 		ptr = ptr->right;
-	} while(ptr != end);
+	} while(ptr != end->right);
+	start = ptr->right;
 	return count;
 }
+
+/*
+* This function will increment the ACK count in the ACK Received field 
+* @ackRecv this is the ACK that came in 
+*/
 void updateAckField(int ackRecv){
-	CircularBufferNode * ptr = start;
+	ServerBufferNode * ptr = start;
 	int count = 0;
 	do{
-		if(ptr->seq == ackRecv){
+		if(ptr->seq == ackRecv && ptr->occupied == 1){
 			ptr->ackCount++;
+			//if acKcount is 3 we should fast retransmit
+			//TODO
 			return;
 		}
 		ptr = ptr->right;
-	} while(ptr != end);
+	} while(ptr != end->right);
 }
 int addNodeContents(int seqNum, MsgHdr * data){
 	if(availableWindowSize() <= 0)
 		return -1 ;
 
-	CircularBufferNode * ptr = end->right;
+	ServerBufferNode * ptr = end->right;
 	if(ptr != 0)
 		return -1;//this should never happen of we maintain the window properly
 
@@ -142,7 +168,7 @@ int addNodeContents(int seqNum, MsgHdr * data){
 }
 int getWindowSize(){
 	int count = 0;
-	CircularBufferNode * ptr =cHead;
+	ServerBufferNode * ptr =cHead;
 	do{
 		count++;
 		ptr = ptr->right;
@@ -158,7 +184,7 @@ int main(){
 	printf("avail: %d\n", avail);
 	avail = getWindowSize();
 	printf("window Size %d \n", avail);
-	CircularBufferNode *a = findSeqNode(0);
+	ServerBufferNode *a = findSeqNode(0);
 	if(a == NULL){
 		printf("NULL\n");
 	}
@@ -169,5 +195,5 @@ int main(){
 	//printf("avail: %d\n", avail);
 	//printf("avail: %d\n", avail);
 	//printf("%d\n", sizeof(MsgHdr));
-	//printf("%d\n", sizeof(CircularBufferNode));
+	//printf("%d\n", sizeof(ServerBufferNode));
 }
