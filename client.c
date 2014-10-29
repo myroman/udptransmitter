@@ -5,10 +5,11 @@
 #include "unp.h"
 #include "dtghdr.h"
 #include "utils.h"
+#include "clientCircularBuffer.h"
+
 const int MAX_SECS_REPLY_WAIT = 5;
 const int MAX_TIMES_TO_SEND_FILENAME = 3;
 	
-
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
 int downloadFile(int sockfd, const char* fileName);
 
@@ -61,7 +62,6 @@ int main()
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(inputData->srvPort);
-	printf("server well-known port: %d\n", inputData->srvPort);
 	Inet_pton(AF_INET, inputData->ipAddrSrv, &servaddr.sin_addr);	
 	printf("The server address and port: %s:%d\n", inet_ntoa(servaddr.sin_addr), ntohs(servaddr.sin_port));
 	
