@@ -200,6 +200,6 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 	DtgHdr* replyHdr = (DtgHdr*)rmsg.msg_iov[0].iov_base;
 	*srvSeqN = ntohs(replyHdr->seq);	
 	*newPort = atoi(buf); //TODO: gotta check it
-	printf("New server ephemeral port: %d\n", *newPort);
+	printf("New server ephemeral port: %s ,  %d\n", buf, *newPort);
 	return 1;
 }

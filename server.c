@@ -162,7 +162,6 @@ int main (int argc, char ** argv){
     //unsigned char *ptr;
     struct arpreq arpreq;
     struct sockaddr *sa;
-    //int PORT = 50000;
     fd_set rset;
     FD_ZERO(&rset);
     //sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -366,17 +365,23 @@ int main (int argc, char ** argv){
 									transFd = socket(AF_INET, SOCK_DGRAM, 0);
 									bzero(&transSock, sizeof(transSock));
 									transSock.sin_family = AF_INET;
-									transSock.sin_addr = sockets_info[i].ip_addr; //bind the socket to the ip address
 									transSock.sin_port = 0;//this will cause kernel to give ephemeral port
-									if((bind(transFd, (SA*) &transSock, sizeof(transSock))) != 0){//bind the new port
+									transSock.sin_addr = sockets_info[i].ip_addr; //bind the socket to the ip address
+									retryBind:	
+									if((bind(transFd, (SA*) &transSock, sizeof(transSock))) == -1){//bind the new port
 										if(errno != EINTR){
 											printf("Binding new transfer socket error.  Errno: %s \n",  strerror(errno));
 											exit(0);
 										}
+										//printf("BLAH\n");
 									}
 
-									socklen_t transLen;
-									getsockname(transFd,(SA*) &transSock, &transLen);
+									socklen_t transLen = sizeof(transSock);
+									//struct sockaddr_in temp;
+									if(getsockname(transFd,(SA*) &transSock, &transLen) == -1){
+										printf("Error on getsockname\n");
+										exit(0);
+									}
 									printf("IPServer Connection Socket: %s:%d\n", inet_ntoa(transSock.sin_addr), transSock.sin_port);
 
 									//Call connect 
@@ -395,11 +400,13 @@ int main (int argc, char ** argv){
                                     printf("HERE\n");
                                     printf("hi there\n");
                                     char* buf2=malloc(10);
+					printf("Int rep of port: %d\n", transSock.sin_port);
                                     sprintf(buf2, "%d", transSock.sin_port);
+					printf("String rep of port: %s\n", buf2);
                                     fillHdr(&sendHdr, &smsg, buf2, getDtgBufSize(), (SA *)&cliaddr, sizeof(cliaddr));
                                     printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
                                     if (sendmsg(sockets_info[i].sockfd, &smsg, 0) == -1) {
-                                        printf("Error on sendmsg\n");
+                                        printf("Error on sendmsg errno:%s\n", strerror(errno));
                                         return;
                                     }
 
@@ -460,14 +467,16 @@ int handleConnectionAck(int * listeningFd, int * connectionFd, MsgHdr * msg){
 		if(i != 0){
 			//Send msg on connection socket
 			if (sendmsg(*connectionFd, msg, 0) == -1) {
-				printf("Error on sendmsg\n");
-				return;
+				printf("Error on sendmsg on connectionFd\n");
+				continue;
+				//return;
 			}
 
 			//Send msg on listening socket as well
 			if (sendmsg(*listeningFd, msg, 0) == -1) {
-				printf("Error on sendmsg\n");
-				return;
+				printf("Error on sendmsg on listenFd\n");
+				continue;
+				//return;
 			}
 		}
 		if((select(maxfd, &tset, NULL, NULL, &tv))){
