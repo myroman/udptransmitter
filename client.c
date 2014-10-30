@@ -330,7 +330,7 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 	char* buf = (char*)malloc(MAXLINE);
 	fillHdr2(&rHdr, &rmsg, buf, MAXLINE);
 	if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
-		printf("Error on recvmsg\n");
+		printf("Error on recvmsg errno: %s\n", strerror(errno));
 		return 0;
 	}
 	
