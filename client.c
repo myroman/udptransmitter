@@ -19,6 +19,7 @@ ClientBufferNode * end = NULL;		//end is used to symbolize the last inorder segm
 
 uint32_t currentAck;// = 0; //Never touch this variable. To access call getAckToSend() function.
 
+int Finish = 0;
 
 void printBufferContents();
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
@@ -142,7 +143,7 @@ void* consumeChunkRoutine(void *arg) {
 	strcat(fileName, tmpFn);
 	FILE* dlFile = fopen(fileName, "w+");
 	for(;;) {
-		sleep(5);//TODO: random
+		sleep(rand()%3);//5);//TODO: random
 
 		pthread_mutex_lock(&mtLock);
 
@@ -152,9 +153,9 @@ void* consumeChunkRoutine(void *arg) {
 
 		pthread_mutex_unlock(&mtLock);
 
-		if (targs->fin ==1 && numConsumed == 0) {
+		if (Finish == 1 && numConsumed == 0){//targs->fin ==1 && numConsumed == 0) {
 			printf("C:found out EOF, so I save the file\n");
-			pthread_mutex_unlock(&mtLock);
+			//pthread_mutex_unlock(&mtLock);
 			break;			
 		}
 		
@@ -226,7 +227,9 @@ void* fillSlidingWndRoutine(void * arg) {
 		else {
 			printf("P:Got a FIN\n");
 			pthread_mutex_lock(&mtLock);
-			sendFinToConsumer(targs);
+			printf("P: after acquiring lock\n");
+			Finish = 1;
+			//sendFinToConsumer(targs);
 
 			// Send a final ACK which should terminate the connection
 			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG);
