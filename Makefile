@@ -42,4 +42,4 @@ testClient2.o: testClient2.c
 	${CC} ${FLAGS} -c testClient2.c ${UNP}
 
 clean:
-	rm prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o server server.o client client.o testClient testClient.o input.o testClient2.o testClient2 ifs.o CircularBufferNode.o CircularBufferNode
+	rm *.o prifinfo_plus server client  testClient testClient2  

@@ -138,6 +138,250 @@ int deleteClientRecord(ClientInfo * ptr){
 //**************************** processedClient Data Structure *****************//
 
 
+//************************Circular window buffer ************************//
+typedef struct ServerBufferNode ServerBufferNode;//typeDef for the Clinet Info object
+struct ServerBufferNode{
+    int occupied;//Process ID used to remove from the DS when server is done serving client
+    uint32_t  seq;
+    uint32_t ackCount;
+    uint32_t ts;
+    MsgHdr * dataPayload;
+    ServerBufferNode *right;
+    ServerBufferNode *left;
+};
+
+
+ServerBufferNode * cHead = NULL;
+ServerBufferNode * cTail = NULL;
+ServerBufferNode * start = NULL;
+ServerBufferNode * end = NULL;
+
+uint32_t sequenceNumber = 1;// dont touch this variable
+/*
+* This function will allocate the number of nodes in the Circular buffer
+* @ numToAllocate is the number of elements to allocate for
+* @ return -1 error
+*           1 success
+*/
+int allocateCircularBuffer(int numToAllocate){
+    if(numToAllocate < 1){
+        printf("Invalid number of nodes to allocate...\n");
+        return -1;
+    }
+    ServerBufferNode * cptr = malloc(sizeof(ServerBufferNode) * numToAllocate);
+    if(cptr == NULL){
+        printf("Out of Memory. Exiting...");
+        return -1;
+    }   
+    int i;
+    if(numToAllocate > 2){
+        printf("Here\n");
+        for(i = 0; i < numToAllocate ; i++){
+            if(i == 0){
+                //printf("Here HEAD\n");
+                cHead = &cptr[i];
+                cptr[i].left = &cptr[numToAllocate-1];
+                cptr[i].right = &cptr[i+1];
+            }
+            else if(i ==(numToAllocate -1)){
+                //printf("Here TAIL\n");
+                cTail = &cptr[i];
+                cptr[i].right = &cptr[0];
+                cptr[i].left = &cptr[i-1];
+            }
+            else{
+                //printf("Here MIDDLE\n");
+                cptr[i].right = &cptr[i+1];
+                cptr[i].left = &cptr[i-1];
+            }
+        }
+    }
+    else if(numToAllocate == 1){
+        cHead = &cptr[0];
+        cTail = &cptr[0];
+        cptr[0].right = &cptr[0];
+        cptr[0].left = &cptr[0];
+    }
+    else {
+        cHead = &cptr[0];
+        cTail = &cptr[1];
+        cptr[0].right = &cptr[1];
+        cptr[0].left = &cptr[1];
+        cptr[1].right = &cptr[0];
+        cptr[1].left = &cptr[0];
+    }
+    start = cHead;
+    end = cHead;
+    //cTail = cHead;
+    ServerBufferNode * ptr = cHead;
+    do{
+        ptr->occupied = 0;
+        ptr->seq = 0;
+        ptr->ts = 0;
+        ptr->ackCount = 0;
+
+        ptr = ptr->right; 
+    }while(ptr!=cHead);
+    return 1;
+}
+
+void printBufferContents(){
+    ServerBufferNode * ptr = cHead;
+    int count =0;
+    printf("\n***** DUMP Buffer Contents: *****\n");
+    do{
+        printf("Node index: %d \n", count);
+        printf("\tOccupied: %d, SequenceNumber: %d, AckCount: %d, Timestamp %d, PayloadPtr %d\n", ptr->occupied, ptr->seq, ptr->ackCount, ptr->ts, ptr->dataPayload);
+        ptr = ptr-> right;
+        count++;
+    }while(ptr!= cHead);
+    printf("\n**********************************\n");
+}
+
+
+/*
+* This function will find a node in the circular buffer that has the interger specified by the sequence number
+* @ seqNum that identifies the sequence number taht needs to be found
+* @ return the pointer to the node containing the sequence number or a NULL pointer symbolizing that it was not found
+*/
+ServerBufferNode * findSeqNode(uint32_t seqNum){
+    ServerBufferNode * ptr = start;
+    do{
+        if(ptr->seq == seqNum)
+            return ptr;
+        ptr = ptr->right;
+    }while(ptr != end->right);
+    return NULL;
+}
+/*
+* This function will remove all the rodes that have sequence number less than ack
+* This function should be called when an ack is received on the select
+* @ ack - is a unsigned uint32_t tha represents the ACK that was received on the server
+* @ return - is the number of elements in the NODE that received an ACK in the process
+*/ 
+int removeNodesContents(uint32_t ack){
+    ServerBufferNode * ptr = start;
+    int count = 0;
+    do{
+        if(ptr->seq < ack && ptr->occupied == 1){
+            count++;
+            ptr->seq = 0;
+            ptr->occupied = 0;
+            ptr->ackCount = 0;
+            ptr->ts = 0;
+            ptr->dataPayload = NULL;
+            //break;
+            //What should i do with MsgHdr 
+        }
+        else{
+            break;
+        }
+        ptr = ptr->right;
+    } while(ptr != end->right);
+    start = ptr;
+    printf("start occupied %d, start seq %d\n", start->occupied, start->seq);
+    return count;
+}
+
+/*
+* This function will increment the ACK count in the ACK Received field 
+* @ackRecv this is the ACK that came in 
+*/
+void updateAckField(int ackRecv){
+    ServerBufferNode * ptr = start;
+    int count = 0;
+    do{
+        if(ptr->seq == ackRecv && ptr->occupied == 1){
+            ptr->ackCount++;
+            //if acKcount is 3 we should fast retransmit
+            //TODO
+            return;
+        }
+        ptr = ptr->right;
+    } while(ptr != end->right);
+}
+uint32_t getSeqNumber(){
+    ++sequenceNumber;
+    return sequenceNumber;
+}
+/*
+* This function will populate a need in the circular data with the data provided in the parameters
+* @ seqNum is the sequence number of the packet to be inserted
+* @ data is the MsgHdr object that the node in the buffer will send to the client
+* @ return -1 is returned if we are out of space or error with time
+*           1 is returned if successful insertion
+*/
+int addNodeContents(int seqNum, MsgHdr * data){
+    if(availableWindowSize() <= 0)
+        return -1 ;
+    ServerBufferNode * ptr = end;
+    if(end->occupied == 1)
+        ptr = ptr->right;
+    //if(ptr != 0)
+    //  return -1;//this should never happen of we maintain the window properly
+
+    ptr->seq = seqNum;
+    ptr->ackCount = 0;
+    ptr->occupied = 1;//symbolizes that this buffer is occupied
+    ptr->dataPayload = data;//assign the data payload that is going to be maintaine
+
+    struct timeval tv;
+    if(gettimeofday(&tv, NULL) != 0){
+        printf("Error getting time to set to packet.\n");
+        return -1;
+    }
+
+    ptr->ts = ((tv.tv_sec * 1000) + tv.tv_usec / 1000); //this will get the timestamp in msec
+    end = ptr;
+    return 1 ;
+}
+
+/*
+* This function will return the number of nodes in our circular buffer window.
+* @ return the number of nodes in our circular buffer
+*/
+int getWindowSize(){
+    //printf("IN get window size\n");
+    int count = 0;
+    ServerBufferNode * ptr =cHead;
+    do{
+        count++;
+        ptr = ptr->right;
+    }while(ptr!= cHead);
+    //printf("countt: %d\n", count);
+    return count;
+}
+
+/*
+* This will return the number of nodes that not currently occupied
+* @ return - the number of nodes that are free
+*/
+int availableWindowSize(){
+    ServerBufferNode* ptr = cHead;
+    int count = 0;
+    do{
+        if (ptr->occupied == 0){
+            count++;
+        }
+        ptr = ptr->right;
+    }while(ptr!= cHead);
+    return count;
+}
+
+ServerBufferNode * getOldestInTransitNode(){
+    //printf("Oldest\n");
+    //printf("start: %d %d\n", start->occupied, start->seq);
+    if(start->occupied == 0){
+        //printf("NULL\n");
+        return NULL;
+    }
+    else{
+        //printf("START\n");
+        return start;
+    }
+}
+//*****************************************************************************//
+
 void signalChildHandler(int signal){
     pid_t pid;
     int stat;
