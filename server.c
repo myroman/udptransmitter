@@ -531,7 +531,7 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
         }    
     }
 
-    for(i = 0;i <= numChunks; ++i) {
+    for(i = 0;i < numChunks; ++i) {
         bzero(&hdr, sizeof(hdr));  
         bzero(&msg, sizeof(msg));     
         fillHdr2(&hdr, &msg, NULL, 0);
