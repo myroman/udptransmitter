@@ -463,7 +463,7 @@ int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg) {
 			//Send msg on listening socket as well
 			if (sendmsg(*listeningFd, msg, 0) == -1) {
 				printf("Error on sendmsg on listenFd\n");
-				continue;22
+				continue;
 			}
 		}
 		if((select(maxfd, &tset, NULL, NULL, &tv))){
