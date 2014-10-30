@@ -33,6 +33,8 @@ struct ifi_info {
 
 #define IFI_ALIAS       1                       /* ifi_addr is an alias */
 
+#define MAX_NUMBER_TRIES_READ_SRV 10
+
                                         /* function prototypes */
 struct ifi_info *get_ifi_info_plus(int, int);
 struct ifi_info *Get_ifi_info_plus(int, int);

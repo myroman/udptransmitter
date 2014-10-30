@@ -6,7 +6,11 @@
 #include "dtghdr.h"
 #include "fileChunking.h"
 
-void startFileTransfer(const char* fileName, int fd, int sockOpts);
+int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
+int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
+int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
+int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq);
+int finishConnection(size_t sockfd, int sockOpts, int lastSeq);
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
 //We will malloc space for this later when we know how many sockes we have
@@ -286,15 +290,15 @@ int main (int argc, char ** argv){
                             //bzero(&cliaddr, sizeof(cliaddr));
                             char* buf = malloc(getDtgBufSize());
                             MsgHdr rmsg;
-                            bzero(&rmsg, sizeof(MsgHdr));
+                            bzero(&rmsg, sizeof(rmsg));
                             DtgHdr rHdr;
-                            bzero(&rHdr, sizeof(DtgHdr));
+                            bzero(&rHdr, sizeof(rHdr));
                             fillHdr(&rHdr, &rmsg, buf, getDtgBufSize(), (SA *)&cliaddr, sizeof(cliaddr));
                             int n;
                             if ((n = recvmsg(sockets_info[i].sockfd, &rmsg, 0)) == -1) {
                                 err_quit("Error on recvmsg\n");
                             }
-                            printf("n:%d\n", n);
+                            printf("seq=%d\n", rHdr.seq);
                             char* fileName = (char*)rmsg.msg_iov[1].iov_base;
                             //fileName[rmsg.msg_iov[1].iov_len] = 0;
                             printf("READ from Socket: %s\n", fileName);
@@ -325,13 +329,13 @@ int main (int argc, char ** argv){
                             	
                             	//For of the child process here
                             	int pid;
-                                if((pid = fork()) == 0){
+                                if((pid = fork()) == 0) {
 									sleep(1);
                                 	//Child server process stuff goes here
                                 	//printf("Child pid: %d\n", pid);
 
                                 	//Go through the sockets info data structure and close all the listening sockets
-                                	int j;
+                                	int j, res;
                                 	for(j = 0; j < sockInfoLength; j++){
                                 		if(i!= j){
                                 			close(sockets_info[j].sockfd);//
@@ -339,32 +343,11 @@ int main (int argc, char ** argv){
                                 		}
                                 	}
 
-                                	//Check if the client is local or not
-                                	int localFlag = 0;
-                                	//Step one if the server is localhost then we are done
-                                	in_addr_t localHostConstant = inet_addr("127.0.0.1");
-                                	if(sockets_info[i].ip_addr.s_addr == localHostConstant){
-                                		printf("LocalHost Match found. IP server is local\n");
-                                		localFlag =1;
-                                	}
-                                	//check if IPClient is local to any of the interfaces
-                                	else if(sockets_info[i].subnet_addr.s_addr == (cliaddr.sin_addr.s_addr & sockets_info[i].netmask_addr.s_addr)){
-										printf("IP Client : %s\n", inet_ntoa(cliaddr.sin_addr));
-                                		printf("IPClient and IPServer are on the local using SO_DONTROOT OPTION\n");
-                                		localFlag =1;
-                                	}
-                                	else{
-                                		// the client is
-                                	}
-									struct sockaddr_in transSock;
-									int transFd;
+                                    int transSockOptions = resolveSockOptions(i, cliaddr);
+                                	int transFd = socket(AF_INET, SOCK_DGRAM, 0);
 
-                                    int transSockOptions;
-                                    if (localFlag ==1 ){
-                                        transSockOptions = MSG_DONTROUTE;
-                                    }
-									transFd = socket(AF_INET, SOCK_DGRAM, 0);
-									bzero(&transSock, sizeof(transSock));
+									struct sockaddr_in transSock;                                    
+                                    bzero(&transSock, sizeof(transSock));
 									transSock.sin_family = AF_INET;
 									transSock.sin_addr = sockets_info[i].ip_addr; //bind the socket to the ip address
 									transSock.sin_port = 0;//this will cause kernel to give ephemeral port
@@ -381,44 +364,31 @@ int main (int argc, char ** argv){
 
 									//Call connect 
 									if ((connect(transFd,(SA*) &cliaddr, sizeof(cliaddr))) != 0){
-										printf("Error connecting to the client. Exiting...");
+										printf("Error connecting to the client. Exiting...\n");
 										exit(0);
 									}
-									printf("Connection setup to IPClient.\n");
-									DtgHdr sendHdr;
-                                    bzero(&sendHdr, sizeof(sendHdr));
-                                    sendHdr.seq = 1;
-                                    sendHdr.ack = rHdr.seq + 1;
-                                    printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
+									printf("Connection is set up to client\n");									
+
+                                    //sending 2nd handshake                                    
                                     MsgHdr smsg;
-                                    bzero(&smsg, sizeof(MsgHdr));
-                                    printf("HERE\n");
-                                    printf("hi there\n");
-                                    char* buf2=malloc(10);
-                                    sprintf(buf2, "%d", transSock.sin_port);
-                                    fillHdr(&sendHdr, &smsg, buf2, getDtgBufSize(), (SA *)&cliaddr, sizeof(cliaddr));
-                                    printf("TESTING  The client IP address %s, port:%d\n", inet_ntoa(cliaddr.sin_addr), cliaddr.sin_port);
-                                    if (sendmsg(sockets_info[i].sockfd, &smsg, 0) == -1) {
-                                        printf("Error on sendmsg\n");
+                                    bzero(&smsg, sizeof(smsg));
+                                    if ((res = sendNewPortNumber(sockets_info[i].sockfd, &smsg, ntohs(rHdr.seq), transSock.sin_port, (SA*)&cliaddr, sizeof(cliaddr))) == 0) {
+                                        printf("Error when sending new port number\n");
                                         return;
                                     }
 
-
-                                    //Here we need to see if we read anything on the new transFd socket
-                                    int retAck = handleConnectionAck(&sockets_info[i].sockfd, &transFd, &smsg);
-
-                                    if(retAck == 0){                                        
-                                        printf("I'm here\n");//TODO: close listening socket inherited from parent
-
-                                    	//Start sending File
-                                    	startFileTransfer(fileName, transFd, transSockOptions);
-                                    }
-                                    else{
-                                    	//Anort
-                                    	printf("Didn't receive ACK from client. Exiting...\n");
+                                    //Here we need to receive 3rd handshake
+                                    if((res = receiveThirdHandshake(&sockets_info[i].sockfd, &transFd, &smsg)) == 0) {
+                                        printf("Didn't receive ACK from client. Exiting...\n");
+                                    } else {
+                                        int lastSeq;
+                                    	if((res = startFileTransfer(fileName, transFd, transSockOptions, &lastSeq)) == 1) {
+                                            if ((res=finishConnection(transFd, transSockOptions, lastSeq)) == 1) {
+                                                
+                                            }
+                                        }
                                     }
                                 	exit(0);
-
                                 }
                                 else{
                                 	//parent server process goes here
@@ -443,7 +413,23 @@ int main (int argc, char ** argv){
     exit(0);
 }
 
-int handleConnectionAck(int * listeningFd, int * connectionFd, MsgHdr * msg){
+int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr) {    
+    //Step one if the server is localhost then we are done
+    in_addr_t localHostConstant = inet_addr("127.0.0.1");
+    if(sockets_info[sockNumber].ip_addr.s_addr == localHostConstant){
+        printf("LocalHost Match found. IP server is local\n");
+        return MSG_DONTROUTE;
+    }
+    //check if IPClient is local to any of the interfaces
+    else if(sockets_info[sockNumber].subnet_addr.s_addr == (cliaddr.sin_addr.s_addr & sockets_info[sockNumber].netmask_addr.s_addr)){
+        printf("IP Client : %s\n", inet_ntoa(cliaddr.sin_addr));
+        printf("IPClient and IPServer are on the local using SO_DONTROOT OPTION\n");
+        return MSG_DONTROUTE;
+    }
+    return 0;
+}
+
+int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg) {
 	const int MAX_SECS_REPLY_WAIT = 5;
 	const int MAX_TIMES_TO_SEND_FILENAME = 3;
 	fd_set tset;
@@ -452,7 +438,7 @@ int handleConnectionAck(int * listeningFd, int * connectionFd, MsgHdr * msg){
 	struct timeval tv;
     
 	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; i++){
-		tv.tv_sec = 5;
+		tv.tv_sec = MAX_SECS_REPLY_WAIT;
     	tv.tv_usec = 0; 
 		FD_ZERO(&tset);
 		FD_SET(*connectionFd, &tset);
@@ -461,40 +447,126 @@ int handleConnectionAck(int * listeningFd, int * connectionFd, MsgHdr * msg){
 			//Send msg on connection socket
 			if (sendmsg(*connectionFd, msg, 0) == -1) {
 				printf("Error on sendmsg\n");
-				return;
+				return 0;
 			}
 
 			//Send msg on listening socket as well
 			if (sendmsg(*listeningFd, msg, 0) == -1) {
 				printf("Error on sendmsg\n");
-				return;
+				return 0;
 			}
 		}
 		if((select(maxfd, &tset, NULL, NULL, &tv))){
 			if(FD_ISSET(*connectionFd, &tset)){
-				//we received the ack
-				return 0;
+                printf("We received the 3nd handshake\n");				
+				return 1;
 			}
 		}
 	}
-	return -1;
-
+	return 0;
 }
 
-void startFileTransfer(const char* fileName, int fd, int sockOpts) {
+// 2nd handshake - sending the ephemeral port number
+int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz) {
+    DtgHdr hdr;
+    bzero(&hdr, sizeof(hdr));
+    
+    hdr.seq = htons(1);
+    hdr.ack = htons(lastSeqH + 1);
+    hdr.flags = htons(ACK_FLAG);
+    
+    printf("Sending 2nd handshake: ACK=%d, flag:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
+    
+    char* portStr = malloc(10);
+    sprintf(portStr, "%d", newPort);
+    
+    fillHdr(&hdr, pmsg, portStr, getDtgBufSize(), (SA *)cliaddr, cliaddrSz);
+    printf("Resolved after 2nd handshake client address %s:%d\n", inet_ntoa(cliaddr->sin_addr), cliaddr->sin_port);
+    if (sendmsg(sockfd, pmsg, 0) == -1) {        
+        return 0;
+    }
+    printf("2nd handshake is sent\n");
+    return 1;
+}
+
+int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq) {
     int numChunks, i, res, lastChunkRem;
     char** chunks = chunkFile(fileName, &numChunks, &lastChunkRem);
     DtgHdr hdr;
     MsgHdr msg;
-    for (i=0; i < numChunks; ++i) {
-        bzero(&hdr, sizeof(hdr));        
-        hdr.seq = htons(i+2);
+    for (i=0; i < numChunks; ++i) {  
+        sleep(0.4);    
+        printf("sleep\n");
+        bzero(&hdr, sizeof(hdr));    
+        *lastSeq = i + 2;
+        hdr.seq = htons(*lastSeq);
         if (i == numChunks -1) {
             hdr.chl = htons(lastChunkRem);
         }
         bzero(&msg, sizeof(msg));     
         fillHdr2(&hdr, &msg, chunks[i], getDtgBufSize());
-        res = sendmsg(fd, &msg, sockOpts);        
+        printf("Send seq=%d\n", ntohs(hdr.seq));
+        res = sendmsg(fd, &msg, sockOpts);      
+        printf("sendmsg returned %d\n", res);
+        if (res <= 0) {
+            return 0;
+        }    
     }
+
+    for(i = 0;i <= numChunks; ++i) {
+        bzero(&hdr, sizeof(hdr));  
+        bzero(&msg, sizeof(msg));     
+        fillHdr2(&hdr, &msg, NULL, 0);
+        res = recvmsg(fd, &msg, 0);
+        if (res == -1) 
+            continue;
+        //printf("Receive res=%d\n", res);
+        int ack = ntohs(hdr.ack);
+        printf("Received ACK=%d, flags:%d\n", ack, ntohs(hdr.flags));
+    }
+    return 1;
     printf("File transfer complete\n");
+}
+
+int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
+    DtgHdr hdr;
+    bzero(&hdr, sizeof(hdr));
+    hdr.seq = htons(lastSeq + 1);
+    hdr.flags = htons(FIN_FLAG);
+
+    MsgHdr msg;
+    bzero(&msg, sizeof(msg));
+    fillHdr2(&hdr, &msg, NULL, 0);
+    printf("Finish connection, send seq:%d, flags:%d\n", ntohs(hdr.seq), ntohs(hdr.flags));
+    int res = sendmsg(sockfd, &msg, sockOpts);
+    if (res == -1) {
+        printf("Error when sending a FIN\n");
+        return 0;
+    }
+    printf("Waiting for ACK\n");
+    
+    DtgHdr hdr2;
+    MsgHdr msg2;
+    
+    int i;
+    for(i = 0;i < MAX_NUMBER_TRIES_READ_SRV; ++i) {
+        bzero(&hdr2, sizeof(hdr2));
+        bzero(&msg2, sizeof(msg2));
+        fillHdr2(&hdr2, &msg2, NULL, 0);
+        if((res = recvmsg(sockfd, &msg2, sockOpts)) == -1) {
+            printf("Error when reading final ACK\n");
+            continue;
+        }
+        int respFlags = ntohs(hdr2.flags);
+        printf("Finally received ack:%d, flags:%d\n", ntohs(hdr2.ack), respFlags);
+        if(respFlags == (6)){//FIN_FLAG | ACK_FLAG)) {
+            printf("I got the final ack, gonna terminate the connection\n");
+            return 1;
+        } else {
+            printf("It's not final ack, flags=%d\n", respFlags);
+        }
+    }
+    printf("Exceeded the max number of tried to retrieve final ACK from client. Connection will be terminated\n");
+
+    return 0;
 }

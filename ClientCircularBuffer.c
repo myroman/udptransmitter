@@ -2,15 +2,15 @@
 #include "unp.h"
 #include "clientCircularBuffer.h"
 
-/*
+
 ClientBufferNode * cHead = NULL; 	//cHead is used to setup the circular buffer
 ClientBufferNode * cTail = NULL;	//cTail is used to setup the circular buffer
 ClientBufferNode * start = NULL;	//start is used to symbolize where the consumer can start reading from. Only modified by consumer
 ClientBufferNode * end = NULL;		//end is used to symbolize the last inorder segment received up until this point
-*/
+
 uint32_t currentAck;// = 0; //Never touch this variable. To access call getAckToSend() function.
 
-int allocateCircularBuffer(int numToAllocate, ClientBufferNode* cHead, ClientBufferNode* cTail, ClientBufferNode* start, ClientBufferNode* end) {
+int allocateCircularBuffer(int numToAllocate) {
 	
 	if(numToAllocate < 1) {
 		printf("Invalid number of nodes to allocate...\n");
@@ -23,22 +23,18 @@ int allocateCircularBuffer(int numToAllocate, ClientBufferNode* cHead, ClientBuf
 	}	
 	int i;
 	if(numToAllocate > 2){
-		printf("Here\n");
 		for(i = 0; i < numToAllocate ; i++){
 			if(i == 0){
-				printf("Here HEAD\n");
 				cHead = &cptr[i];
 				cptr[i].left = &cptr[numToAllocate-1];
 				cptr[i].right = &cptr[i+1];
 			}
 			else if(i ==(numToAllocate -1)){
-				printf("Here TAIL\n");
 				cTail = &cptr[i];
 				cptr[i].right = &cptr[0];
 				cptr[i].left = &cptr[i-1];
 			}
 			else{
-				printf("Here MIDDLE\n");
 				cptr[i].right = &cptr[i+1];
 				cptr[i].left = &cptr[i-1];
 			}
@@ -63,7 +59,7 @@ int allocateCircularBuffer(int numToAllocate, ClientBufferNode* cHead, ClientBuf
 	return 1;
 }
 
-int availableWindowSize(ClientBufferNode * cHead){
+int availableWindowSize(){
 	ClientBufferNode* ptr = cHead;
 	int count = 0;
 	do{
@@ -74,13 +70,13 @@ int availableWindowSize(ClientBufferNode * cHead){
 	return count;
 }
 
-int getWindowSize(ClientBufferNode * cHead){
+int getWindowSize(){
 	int count = 0;
-	ClientBufferNode * ptr =cHead;
+	ClientBufferNode *ptr = cHead;
 	do{
 		count++;
 		ptr = ptr->right;
-	}while(ptr!= cHead);
+	} while(ptr!= cHead);
 	return count;
 }
 
@@ -88,7 +84,7 @@ uint32_t getAckToSend(){
 	return currentAck;
 }
 
-void updateInorderEnd(ClientBufferNode * end){
+void updateInorderEnd(){
 	if(end->occupied == 0){
 		return;
 	}
@@ -104,11 +100,12 @@ void updateInorderEnd(ClientBufferNode * end){
 	currentAck = (ptr->seqNum) + 1;//sets the currentAck field 
 }
 
-int addDataPayload(uint32_t s, MsgHdr* dp, ClientBufferNode * cHead, ClientBufferNode* start, ClientBufferNode* end) {
-	if(availableWindowSize(cHead) == 0){
+int addDataPayload(uint32_t s, MsgHdr* dp) {
+	if(availableWindowSize() == 0){
 		return -1;
 	}
 	if(start->occupied == 0){
+		start->occupied = 1;
 		start->seqNum = s;
 		start->dataPayload = dp;
 	}
@@ -123,34 +120,40 @@ int addDataPayload(uint32_t s, MsgHdr* dp, ClientBufferNode * cHead, ClientBuffe
 		if(ptr->occupied == 1){//if its occupied just return with 0
 			return 0;
 		}
+		ptr->occupied = 1;
 		ptr->seqNum = s;
 		ptr->dataPayload = dp;
 
 	}
-	updateInorderEnd(end);//this will update the pointer to the end
+	updateInorderEnd();//this will update the pointer to the end
 	return 1;//successfully added data
 }
 
-int consumeBuffer(FILE * fPointer, ClientBufferNode * start, ClientBufferNode* end, ClientBufferNode* cHead) {
+int consumeBuffer(FILE * fPointer) {
 	int count = 0;
 	if(start->occupied == 0){
-		return count;;//nothing to read yet
+		return count;//nothing to read yet
 	}
-
-	if(getWindowSize(cHead) >= 2){
-		do{
+	
+	if(getWindowSize() >= 2){
+		do {
 			count++;
 			//Write out the data to the File
 			MsgHdr *mptr = start->dataPayload;
 			char *toWrite = extractBuffFromHdr(*mptr);
+			printf("consumer buf: %s\n", toWrite);
 			fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
+
 			// ********
 
 			start->occupied = 0;
+
 			free(start->dataPayload);
+
 			start->dataPayload=NULL;
 			start = start->right;
-		}while(start != end->right);
+		} 
+		while(start != end->right);
 		end = start;
 	}
 	else{

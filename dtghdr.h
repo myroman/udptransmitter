@@ -5,10 +5,14 @@
 
 #define MAX_DTG_SIZE 512
 
+#define SYN_FLAG 1
+#define ACK_FLAG 2
+#define FIN_FLAG 4
+
 struct dtghdr {
 	uint32_t seq;	/* sequence # */
-	uint32_t ack;
-	uint32_t ts;		/* timestamp when sent */	
+	uint32_t ack; // ack number
+	uint32_t ts; /* timestamp when sent */	
 	uint32_t flags; //We need to add this to sending
 	uint32_t chl; //chunk length
 	uint32_t advWnd;
