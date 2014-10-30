@@ -468,7 +468,14 @@ int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg) {
 		}
 		if((select(maxfd, &tset, NULL, NULL, &tv))){
 			if(FD_ISSET(*connectionFd, &tset)){
-                printf("We received the 3nd handshake\n");				
+                DtgHdr hdr;
+                MsgHdr msg;
+                fillHdr2(&hdr, &msg, NULL, 0);
+                if (recvmsg(*connectionFd, &msg, 0) == -1) {
+                    printf("Error when receiving 3rd handshake\n");
+                    continue;
+                }
+                printf("We received the 3nd handshake, ack:%d, flags:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
 				return 1;
 			}
 		}
@@ -506,7 +513,6 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq) 
     MsgHdr msg;
     for (i=0; i < numChunks; ++i) {  
         sleep(0.4);    
-        printf("sleep\n");
         bzero(&hdr, sizeof(hdr));    
         *lastSeq = i + 2;
         hdr.seq = htons(*lastSeq);
@@ -515,7 +521,7 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq) 
         }
         bzero(&msg, sizeof(msg));     
         fillHdr2(&hdr, &msg, chunks[i], getDtgBufSize());
-        printf("Send seq=%d\n", ntohs(hdr.seq));
+        printf("Send chunk, SEQ=%d\n", ntohs(hdr.seq));
         res = sendmsg(fd, &msg, sockOpts);      
         printf("sendmsg returned %d\n", res);
         if (res <= 0) {
@@ -530,9 +536,7 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq) 
         res = recvmsg(fd, &msg, 0);
         if (res == -1) 
             continue;
-        //printf("Receive res=%d\n", res);
-        int ack = ntohs(hdr.ack);
-        printf("Received ACK=%d, flags:%d\n", ack, ntohs(hdr.flags));
+        printf("Received ACK=%d, flags:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
     }
     return 1;
     printf("File transfer complete\n");

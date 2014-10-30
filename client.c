@@ -22,6 +22,7 @@ uint32_t currentAck;// = 0; //Never touch this variable. To access call getAckTo
 
 void printBufferContents();
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
+int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost);
 int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions);
 void* consumeChunkRoutine (void *arg);
 void* fillSlidingWndRoutine(void * arg);
@@ -92,44 +93,46 @@ int main()
 		exit(1);
 	}
 
-	int newSrvPort, srvReplySeq;
-	int res = sendFileNameAndGetNewServerPort(sockfd, sockOptions, inputData, &newSrvPort, &srvReplySeq);
+	int newSrvPort, srvSeqHost;
+	// 1st and 2nd handshakes
+	int res = sendFileNameAndGetNewServerPort(sockfd, sockOptions, inputData, &newSrvPort, &srvSeqHost);
 	if (res == 0) {
 		exit(1);
 	}
 
-	printf("New srv port: %d\n", newSrvPort);
 	servaddr.sin_port = newSrvPort;
 
-	//close(sockfd);
 	if (connect(sockfd, (SA *) &servaddr, sizeof(servaddr)) < 0) {
 		printf("Error when reconnecting to new server port\n");
 		exit(1);
 	}
-	printf("%s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
-
-	DtgHdr sendHdr;
-	bzero(&sendHdr, sizeof(sendHdr));
-	sendHdr.ack = srvReplySeq + 1;	
-	printf("I got ack %d\n", sendHdr.ack);
-	sendHdr.ack = htons(sendHdr.ack);
-	sendHdr.flags = htons(ACK_FLAG);
-
-	MsgHdr smsg;
-	bzero(&smsg, sizeof(smsg));
+	printf("Reconnected to new server address %s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
 	
-	fillHdr2(&sendHdr, &smsg, NULL, 0);
-	//third handshake
-	printf("Gonna send 3rd\n");
-	if (sendmsg(sockfd, &smsg, sockOptions) == -1) {
-		printf("Error on sendmsg\n");
+	if (sendThirdHandshake(sockfd, sockOptions, srvSeqHost) == 0) {
 		return 1;
 	}
-	printf("Done\n");
-
 	downloadFile(sockfd, inputData->fileName, inputData->slidWndSize, sockOptions);
 
 	return 0;
+}
+
+int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost) {
+	DtgHdr hdr;
+	bzero(&hdr, sizeof(hdr));
+	hdr.ack = htons(lastSeqHost + 1);	
+	hdr.flags = htons(ACK_FLAG);
+	printf("Gonna send 3rd hs, ACK:%d,flags:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
+	
+	MsgHdr msg;
+	bzero(&msg, sizeof(msg));
+	
+	fillHdr2(&hdr, &msg, NULL, 0);	
+	if (sendmsg(sockfd, &msg, sockOptions) == -1) {
+		printf("Error on sending 3rd handshake\n");
+		return 0;
+	}
+	printf("I've sent 3rd handshake\n");
+	return 1;
 }
 
 void* consumeChunkRoutine(void *arg) {	
@@ -212,13 +215,12 @@ void* fillSlidingWndRoutine(void * arg) {
 		if (sentFlags != FIN_FLAG) {		
 			pthread_mutex_lock(&mtLock);
 			char* s = extractBuffFromHdr(*rmsg);
-			printf("P: gonna add to buffer seq=%d, msgptr=%d\n", ntohs(hdr->seq), rmsg);
-			
+			//printf("P: gonna add to buffer seq=%d, msgptr=%d\n", ntohs(hdr->seq), rmsg);
 			//printf("P:buf %s", s);
 
 			int n = addDataPayload(ntohs(hdr->seq), rmsg);
 			//printBufferContents();
-			printf("P: added, n = %d\n", n);									
+			//printf("P: added, n = %d\n", n);									
 			
 			pthread_mutex_unlock(&mtLock);
 			respondAckOrDrop(sockfd, sockOptions, 0);
@@ -243,6 +245,7 @@ void* fillSlidingWndRoutine(void * arg) {
 int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags) {
 	DtgHdr hdr;
 	bzero(&hdr, sizeof(hdr));
+	printf("PRINT ACK:%d\n", getAckToSend());
 	hdr.ack = htons(getAckToSend());
 	hdr.flags = htons(ACK_FLAG | addFlags);
 	printf("P: respond with ACK:%d, flags: %d\n", ntohs(hdr.ack), ntohs(hdr.flags));
@@ -288,11 +291,10 @@ int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions
 	return 1;
 }
 
-int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN) {	
+int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqNumber) {	
 	rmnl(inputData->fileName);
 
 	int	n, i;
-	char sendline[MAXLINE], recvline[MAXLINE + 1];	
 	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; ++i) {	
 		DtgHdr sendHdr;
 		bzero(&sendHdr, sizeof(sendHdr));
@@ -301,42 +303,36 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 		MsgHdr smsg;
 		bzero(&smsg, sizeof(smsg));
 		
-		printf("Gonna send filename: %s\n", inputData->fileName);
+		printf("Gonna send filename: %s, seq=%d\n", inputData->fileName, ntohs(sendHdr.seq));
 		fillHdr2(&sendHdr, &smsg, inputData->fileName, getDtgBufSize());
 
 		if (sendmsg(sockfd, &smsg, 0) == -1) {
 			printf("Error on sendmsg\n");
 			return 0;
 		}
-		char* fn = smsg.msg_iov[1].iov_base;
-		printf("Sent the file name %s...\n", fn);
+		printf("Sent it!\n");
 
+		// if 2nd handshake within the timeout, try 1st handshake once more
 		if (readable_timeo(sockfd, MAX_SECS_REPLY_WAIT) > 0) {
-			printf("Reply!\n");
-			break;
+			// Read server ephemeral port number
+			MsgHdr rmsg;
+			DtgHdr secondHsHdr;
+			bzero(&secondHsHdr, sizeof(secondHsHdr));
+			char* buf = (char*)malloc(MAXLINE);
+			fillHdr2(&secondHsHdr, &rmsg, buf, MAXLINE);
+			if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
+				printf("Error on recvmsg\n");
+				return 0;
+			}
+			*srvSeqNumber = ntohs(secondHsHdr.seq);
+			*newPort = atoi(buf); //TODO: gotta check it
+			free(buf);
+			printf("Received 2nd handshake, port:%d, seq:%d, flags:%d\n", *newPort, *srvSeqNumber, ntohs(secondHsHdr.flags));
+			return 1;			
 		}
 	}
-	if (i == MAX_TIMES_TO_SEND_FILENAME) {
-		printf("Didn't receive an ACK after %d times\n", MAX_TIMES_TO_SEND_FILENAME);
-		return 0;
-	}
-	
-	MsgHdr rmsg;
-	DtgHdr rHdr;
-	bzero(&rHdr, sizeof(rHdr));
-	char* buf = (char*)malloc(MAXLINE);
-	fillHdr2(&rHdr, &rmsg, buf, MAXLINE);
-	if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
-		printf("Error on recvmsg\n");
-		return 0;
-	}
-	
-	DtgHdr* replyHdr = (DtgHdr*)rmsg.msg_iov[0].iov_base;
-	*srvSeqN = ntohs(replyHdr->seq);
-	printf("seq=%d\n", *srvSeqN);
-	*newPort = atoi(buf); //TODO: gotta check it
-	printf("New server ephemeral port: %s ,  %d\n", buf, *newPort);
-	return 1;
+	printf("Didn't receive a 2nd handshake after %d times\n", MAX_TIMES_TO_SEND_FILENAME);
+	return 0;
 }
 
 int allocateCircularBuffer(int numToAllocate) {
