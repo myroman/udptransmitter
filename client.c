@@ -221,13 +221,14 @@ void* fillSlidingWndRoutine(void * arg) {
 			sendFinToConsumer(targs);
 			break;
 		}
+		
 		//TODO: simulate dropping of receiving
 		int sentFlags = ntohs(hdr->flags);		
 		printf("P: received seq:%d, flags: %d\n", ntohs(hdr->seq), sentFlags);
 		if (sentFlags != FIN_FLAG) {		
 			pthread_mutex_lock(&mtLock);
 			char* s = extractBuffFromHdr(*rmsg);
-			//printf("P: gonna add to buffer seq=%d, msgptr=%d\n", ntohs(hdr->seq), rmsg);
+			printf("P: gonna add to buffer seq=%d\n", ntohs(hdr->seq));
 			//printf("P:buf %s", s);
 
 			int n = addDataPayload(ntohs(hdr->seq), rmsg);
@@ -358,6 +359,7 @@ int allocateCircularBuffer(int numToAllocate) {
 		return -1;
 	}
 	ClientBufferNode * cptr = malloc(sizeof(ClientBufferNode) * numToAllocate);
+	bzero(cptr, sizeof(ClientBufferNode) * numToAllocate);
 	if(cptr == NULL){
 		printf("Out of Memory. Exiting...");
 		return -1;
