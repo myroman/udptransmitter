@@ -115,7 +115,7 @@ int main()
 	printf("I got ack %d\n", sendHdr.ack);
 	sendHdr.ack = htons(sendHdr.ack);
 	sendHdr.flags = htons(ACK_FLAG);
-
+	sendHdr.advWnd = htons(inputData->slidWndSize);
 	MsgHdr smsg;
 	bzero(&smsg, sizeof(smsg));
 	
@@ -248,6 +248,8 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags) {
 	bzero(&hdr, sizeof(hdr));
 	hdr.ack = htons(getAckToSend());
 	hdr.flags = htons(ACK_FLAG | addFlags);
+	printf("Adv window size: %d\n", availableWindowSize());
+	hdr.advWnd = htons(availableWindowSize());
 	printf("P: respond with ACK:%d, flags: %d\n", ntohs(hdr.ack), ntohs(hdr.flags));
 	
 	MsgHdr msg;
@@ -300,7 +302,7 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 		DtgHdr sendHdr;
 		bzero(&sendHdr, sizeof(sendHdr));
 		sendHdr.seq = htons(1);
-
+		sendHdr.advWnd = htons(inputData-> slidWndSize);
 		MsgHdr smsg;
 		bzero(&smsg, sizeof(smsg));
 		

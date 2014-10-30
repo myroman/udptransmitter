@@ -9,7 +9,7 @@
 int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
 int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
 int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
-int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq);
+int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize);
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq);
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
@@ -299,8 +299,10 @@ int main (int argc, char ** argv){
                             }
                             printf("seq=%d\n", rHdr.seq);
                             char* fileName = (char*)rmsg.msg_iov[1].iov_base;
+                            int clientWndSize = ntohs(rHdr.advWnd);
                             //fileName[rmsg.msg_iov[1].iov_len] = 0;
                             printf("READ from Socket: %s\n", fileName);
+                            printf("Client Window Size: %d\n", clientWndSize);
                             
 
 
@@ -356,7 +358,6 @@ int main (int argc, char ** argv){
 											printf("Binding new transfer socket error.  Errno: %s \n",  strerror(errno));
 											exit(0);
 										}
-										//printf("BLAH\n");
 									}
 
 									socklen_t transLen = sizeof(transSock);
@@ -387,7 +388,7 @@ int main (int argc, char ** argv){
                                         printf("Didn't receive ACK from client. Exiting...\n");
                                     } else {
                                         int lastSeq;
-                                    	if((res = startFileTransfer(fileName, transFd, transSockOptions, &lastSeq)) == 1) {
+                                    	if((res = startFileTransfer(fileName, transFd, transSockOptions, &lastSeq, clientWndSize)) == 1) {
                                             if ((res=finishConnection(transFd, transSockOptions, lastSeq)) == 1) {
                                                 
                                             }
@@ -499,14 +500,14 @@ int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struc
     return 1;
 }
 
-int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq) {
+int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize) {
     int numChunks, i, res, lastChunkRem;
     char** chunks = chunkFile(fileName, &numChunks, &lastChunkRem);
     DtgHdr hdr;
     MsgHdr msg;
     for (i=0; i < numChunks; ++i) {  
-        sleep(0.4);    
-        printf("sleep\n");
+        //sleep(0.4);    
+        //printf("sleep\n");
         bzero(&hdr, sizeof(hdr));    
         *lastSeq = i + 2;
         hdr.seq = htons(*lastSeq);
@@ -532,7 +533,8 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq) 
             continue;
         //printf("Receive res=%d\n", res);
         int ack = ntohs(hdr.ack);
-        printf("Received ACK=%d, flags:%d\n", ack, ntohs(hdr.flags));
+        int advWin = ntohs(hdr.advWnd);
+        printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(hdr.flags), ntohs(hdr.advWnd));
     }
     return 1;
     printf("File transfer complete\n");

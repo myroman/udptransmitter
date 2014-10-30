@@ -1,6 +1,6 @@
 include Make.defines
 
-all: get_ifi_info_plus.o prifinfo_plus.o server client testClient testClient2 CircularBufferNode
+all: get_ifi_info_plus.o prifinfo_plus.o server client testClient testClient2 
 	${CC} -o prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o ${LIBS}
 
 get_ifi_info_plus.o: get_ifi_info_plus.c
