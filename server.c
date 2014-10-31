@@ -9,7 +9,7 @@
 int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
 int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
 int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
-int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize);
+int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize);
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq);
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
@@ -341,7 +341,7 @@ int addNodeContents(int seqNum, MsgHdr * data){
 * @ return the number of nodes in our circular buffer
 */
 int getWindowSize(){
-    //printf("IN get window size\n");
+    printf("IN get window size\n");
     int count = 0;
     ServerBufferNode * ptr =cHead;
     do{
@@ -632,7 +632,7 @@ int main (int argc, char ** argv){
                                         printf("Didn't receive ACK from client. Exiting...\n");
                                     } else {
                                         int lastSeq;
-                                    	if((res = startFileTransfer(fileName, transFd, transSockOptions, &lastSeq, clientWndSize)) == 1) {
+                                    	if((res = startFileTransfer(fileName, transFd, transSockOptions, &lastSeq, clientWndSize, inputData->slidWndSize)) == 1) {
                                             if ((res=finishConnection(transFd, transSockOptions, lastSeq)) == 1) {
                                                 
                                             }
@@ -751,7 +751,7 @@ int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struc
     return 1;
 }
 
-int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize) {
+/*int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize) {
     int numChunks, i, res, lastChunkRem;
     char** chunks = chunkFile(fileName, &numChunks, &lastChunkRem);
     DtgHdr hdr;
@@ -789,7 +789,112 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
     }
     return 1;
     printf("File transfer complete\n");
+}*/
+int minimum(int cwin, int advWinSize){
+    int availWinSize = availableWindowSize();
+
+    if(cwin <= advWinSize && cwin <= availWinSize){
+        return cwin;
+    }
+    else if( availWinSize <= cwin && availWinSize <= advWinSize){
+        return availWinSize;
+    }
+    else if(advWinSize <= cwin && advWinSize <= availWinSize){
+        return advWinSize;
+    }
+    else{
+        return -1;
+    }
 }
+int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize) {
+    //Malloc the sliding window size of the circular buffer
+    printf("\n\n ***** Starting File Transfer *****\n\n");
+    
+    if(allocateCircularBuffer(myWinSize)!= 1){
+        printf("Allocation of circular buffer failed.\n");
+        return;
+    }
+    printf("Successfully allocated circular buffer.\n");
+
+    if(cHead == NULL  || cTail == NULL || start == NULL || end == NULL){
+        printf("a ptr == NULL\n");
+    }
+    //printBufferContents();
+    int wsize = availableWindowSize();
+    int tsize = getWindowSize();
+    printf("Total window size: %d, Available window size: %d\n", tsize, wsize);
+    ServerBufferNode * sbn = getOldestInTransitNode();
+    if(sbn == NULL){
+        printf("There are no currently intransit segments\n");
+    }
+    int numChunks, i, res, lastChunkRem, ret;
+    char** chunks = chunkFile(fileName, &numChunks, &lastChunkRem);
+    printf("numChunks: %d, lastChunkRem: %d\n", numChunks, lastChunkRem);
+    int cwin = 1;//initiall cwin = 1
+    int ssthresh = cWinSize;//initially sstresh = client's revc window
+    int numToSend, sent, received;
+    int ssFlag = 0;
+    int cWinPercent= 0;
+    int advWin = cWinSize;
+    MsgHdr *msg;
+    DtgHdr *hdr;
+    for(i = 0; i< numChunks; i++){
+        
+        numToSend = minimum(cwin, advWin);
+        printf("minimum: %d\n", numToSend);
+        sent = 0;
+        while(sent< numToSend){
+            msg = malloc(sizeof(struct msghdr)); 
+            hdr = malloc(sizeof(struct dtghdr));
+            bzero(hdr, sizeof(struct dtghdr));
+            bzero(msg, sizeof(struct msghdr));
+            hdr->seq = htons(getSeqNumber());//set the sequence number
+            hdr->flags = htons(SYN_FLAG);//set the flags field
+            if (i == numChunks -1) {
+                hdr->chl = htons(lastChunkRem);
+            }
+            fillHdr2(hdr, msg, chunks[i], getDtgBufSize());
+            ret =addNodeContents((i+2), msg);
+            res = sendmsg(fd, msg, sockOpts);
+            ++sent;
+        }
+        received = 0;
+        while(received < numToSend){
+            MsgHdr rmsg;
+            DtgHdr rhdr;
+            bzero(&rhdr, sizeof(rhdr));  
+            bzero(&rmsg, sizeof(rmsg));     
+            fillHdr2(&rhdr, &rmsg, NULL, 0);
+            res = recvmsg(fd, &rmsg, 0);
+            if (res == -1) 
+                continue;
+            //printf("Receive res=%d\n", res);
+            int ack = ntohs(rhdr.ack);
+            updateAckField(ack);
+            removeNodesContents(ack); 
+            advWin = ntohs(rhdr.advWnd);
+            printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+            ++received;
+            if(ssFlag == 0){
+                ++cwin;
+                if(cwin>=ssthresh){
+                    ssFlag = 1;
+                }                
+            }
+            else{
+                ++cWinPercent;
+                if(cWinPercent/cwin == 0){
+                    ++cwin;
+                    cWinPercent = 0;
+                }
+            }
+
+        }
+    }
+    printf("File transfer complete\n");
+    return 1;
+}
+
 
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
     DtgHdr hdr;
