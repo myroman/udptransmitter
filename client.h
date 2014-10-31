@@ -8,6 +8,8 @@ struct threadArgs {
 	int sockOptions;
 	char* fileName;	
 	uint32_t fin;
+	int seed;
+	int mean;
 };
 
 typedef struct threadArgs ThreadArgs;

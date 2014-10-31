@@ -6,6 +6,7 @@ typedef struct clientBufferNode ClientBufferNode;//typeDef for the Clinet Info o
 struct clientBufferNode{
     int occupied;					//Symbolizes if the node is occupied or not. 1 means occupied, 0 means not occupied
     uint32_t  seqNum;				//The squence number of the datagram residing in the node
+    char* cptr;
     MsgHdr * dataPayload;			//The contents of the message read in the buffer 
     ClientBufferNode *right;		//Pointer to the right
     ClientBufferNode *left;			//Pointer to the left
@@ -25,7 +26,7 @@ int consumeBuffer(FILE * fPointer);
 * @ return -1 failure, 1 success, 0 means the space is occupied not resetting data
 */
 //int addDataPayload(uint32_t s, MsgHdr* dp, ClientBufferNode * cHead, ClientBufferNode* start, ClientBufferNode* end);
-int addDataPayload(uint32_t s, MsgHdr* dp);
+int addDataPayload(uint32_t s, char* c ,MsgHdr* dp);
 /*
 * This function will advance the end pointer to the last inorder datagram. Also update the currentAck
 */

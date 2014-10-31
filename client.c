@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "clientCircularBuffer.h"
 #include "client.h"
+#include <math.h>
 
 const int MAX_SECS_REPLY_WAIT = 5;
 const int MAX_TIMES_TO_SEND_FILENAME = 3;
@@ -24,7 +25,7 @@ int Finish = 0;
 void printBufferContents();
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
 int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost);
-int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions);
+int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean);
 void* consumeChunkRoutine (void *arg);
 void* fillSlidingWndRoutine(void * arg);
 int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags);
@@ -38,6 +39,9 @@ int main()
 		return 1;
 	}
 	
+	//set the random seed for drand
+	srand48(inputData->rndSeed);
+
 	//determine if the server and client is one the same network	
 	char* clientIp = (char*)malloc(MAX_INPUT);
 	int isServerLocal = checkIfLocalNetwork(inputData->ipAddrSrv, clientIp);
@@ -123,7 +127,7 @@ int main()
 	if (sendThirdHandshake(sockfd, sockOptions, srvSeqHost) == 0) {
 		return 1;
 	}
-	downloadFile(sockfd, inputData->fileName, inputData->slidWndSize, sockOptions);
+	downloadFile(sockfd, inputData->fileName, inputData->slidWndSize, sockOptions, inputData->rndSeed, inputData->mean);
 
 	return 0;
 }
@@ -149,6 +153,7 @@ int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost) {
 
 void* consumeChunkRoutine(void *arg) {	
 	ThreadArgs* targs = (ThreadArgs*)arg;
+	printf("seed: %d, mean: %d\n", targs->seed, targs->mean);
 	pthread_mutex_lock(&mtLock);
 	char* tmpFn = targs->fileName;
 	pthread_mutex_unlock(&mtLock);
@@ -156,8 +161,16 @@ void* consumeChunkRoutine(void *arg) {
 	strcpy(fileName, "cli_");
 	strcat(fileName, tmpFn);
 	FILE* dlFile = fopen(fileName, "w+");
+	int mean = 1234;
 	for(;;) {
-		sleep(rand()%3);//5);//TODO: random
+		double drandVal = (double) drand48();
+		drandVal = log(drandVal);
+		int sleep_time_ms= targs->mean*(-1 * drandVal ) ;
+		double sleep_time_s = (double) sleep_time_ms/1000;
+		printf("DRAND %f\n", sleep_time_s );
+		sleep(sleep_time_s);
+
+		//sleep(rand()%3);//5);//TODO: random
 
 		pthread_mutex_lock(&mtLock);
 
@@ -192,7 +205,7 @@ void* fillSlidingWndRoutine(void * arg) {
 	pthread_mutex_unlock(&mtLock);
 	
 	int bufSize = getDtgBufSize();
-	char* chunkBuf = malloc(bufSize);
+	//char* chunkBuf = malloc(bufSize);
 	int i, n;
 	
 	for(;;) {
@@ -207,7 +220,7 @@ void* fillSlidingWndRoutine(void * arg) {
 			sendFinToConsumer(targs);
 			break;
 		}
-
+		char* chunkBuf = malloc(bufSize);
 		MsgHdr* rmsg = malloc(sizeof(struct msghdr));
 		bzero(rmsg, sizeof(struct msghdr));
 		DtgHdr* hdr = malloc(sizeof(struct dtghdr));
@@ -227,11 +240,11 @@ void* fillSlidingWndRoutine(void * arg) {
 		printf("P: received seq:%d, flags: %d\n", ntohs(hdr->seq), sentFlags);
 		if (sentFlags != FIN_FLAG) {		
 			pthread_mutex_lock(&mtLock);
-			char* s = extractBuffFromHdr(*rmsg);
+			//char* s = extractBuffFromHdr(*rmsg);
 			printf("P: gonna add to buffer seq=%d\n", ntohs(hdr->seq));
 			//printf("P:buf %s", s);
 
-			int n = addDataPayload(ntohs(hdr->seq), rmsg);
+			int n = addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
 			//printBufferContents();
 			//printf("P: added, n = %d\n", n);									
 			
@@ -241,7 +254,7 @@ void* fillSlidingWndRoutine(void * arg) {
 		else {
 			printf("P:Got a FIN\n");
 			pthread_mutex_lock(&mtLock);
-			printf("P: after acquiring lock\n");
+			//printf("P: after acquiring lock\n");
 			Finish = 1;
 			//sendFinToConsumer(targs);
 
@@ -252,7 +265,7 @@ void* fillSlidingWndRoutine(void * arg) {
 			break;
 		}
 	}
-	free(chunkBuf);
+	//free(chunkBuf);
 	return NULL;
 }
 
@@ -281,13 +294,16 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags) {
 	return 1;
 }
 
-int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions) {
+int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean ) {
 	int res;
 	
 	ThreadArgs* targs = malloc(sizeof(struct threadArgs));
 	targs->sockfd = sockfd;
 	targs->fileName = fileName;
 	targs->sockOptions = sockOptions;
+	targs->seed = seed;
+	targs->mean = mean;
+
 	
 	res = allocateCircularBuffer(slidingWndSize);
 	if (res == -1) {
@@ -443,14 +459,16 @@ void updateInorderEnd(){
 	currentAck = (ptr->seqNum) + 1;//sets the currentAck field 
 }
 
-int addDataPayload(uint32_t s, MsgHdr* dp) {
+int addDataPayload(uint32_t s, char * c,MsgHdr* dp) {
 	if(availableWindowSize() == 0){
 		return -1;
 	}
+	//printf("AddDataPayload: %s\n\n", c);
 	if(start->occupied == 0){
 		start->occupied = 1;
 		start->seqNum = s;
 		start->dataPayload = dp;
+		start->cptr =c;
 	}
 	else{
 		int difference, i;
@@ -461,11 +479,12 @@ int addDataPayload(uint32_t s, MsgHdr* dp) {
 		}
 
 		if(ptr->occupied == 1){//if its occupied just return with 0
-			return 0;
+			return 0; 
 		}
 		ptr->occupied = 1;
 		ptr->seqNum = s;
 		ptr->dataPayload = dp;
+		ptr->cptr =c;
 
 	}
 	updateInorderEnd();//this will update the pointer to the end
@@ -479,13 +498,15 @@ int consumeBuffer(FILE * fPointer) {
 	}
 	
 	if(getWindowSize() >= 2){
+		printBufferContents();
 		do {
 			count++;
 			//Write out the data to the File
 			MsgHdr *mptr = start->dataPayload;
 			char *toWrite = extractBuffFromHdr(*mptr);
-			//printf("consumer buf: %s\n", toWrite);
-			fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
+			//int seqNum = data[0].iov_base = hdr;
+			printf("Pack Sequence Number: %d\n Contents: %s\n", start->seqNum, start->cptr);
+			//fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
 
 			// ********
 
@@ -518,7 +539,7 @@ void printBufferContents(){
 	printf("\n***** DUMP Buffer Contents: *****\n");
 	do{
 	printf("Node index: %d \n", count);
-	printf("\tOccupied: %d, SequenceNumber: %d, PayloadPtr %u\n", ptr->occupied, ptr->seqNum, ptr->dataPayload);
+	printf("\tOccupied: %d, SequenceNumber: %d, PayloadPtr %u\n\n", ptr->occupied, ptr->seqNum, ptr->dataPayload);
 	ptr = ptr-> right;
 	count++;
 	}while(ptr!= cHead);

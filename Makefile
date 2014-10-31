@@ -14,9 +14,9 @@ server: server.o input.o dtghdr.o fileChunking.o utils.o
 server.o: server.c
 	${CC} ${FLAGS} -c server.c ${UNP}	
 client: client.o input.o ifs.o dtghdr.o utils.o
-	${CC} ${FLAGS} -o client client.o input.o ifs.o dtghdr.o utils.o ${LIBS}
+	${CC} ${FLAGS} -o client client.o input.o ifs.o dtghdr.o utils.o -lm ${LIBS}
 client.o: client.c 
-	${CC} ${FLAGS} -c client.c ${UNP}	
+	${CC} ${FLAGS} -c client.c -lm ${UNP}	
 input.o: input.c
 	${CC} ${FLAGS} -c input.c ${UNP}
 dtghdr.o: dtghdr.c
