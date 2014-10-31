@@ -167,16 +167,14 @@ void* consumeChunkRoutine(void *arg) {
 		drandVal = log(drandVal);
 		int sleep_time_ms= targs->mean*(-1 * drandVal ) ;
 		double sleep_time_s = (double) sleep_time_ms/1000;
-		printf("DRAND %f\n", sleep_time_s );
 		sleep(sleep_time_s);
 
 		//sleep(rand()%3);//5);//TODO: random
 
 		pthread_mutex_lock(&mtLock);
 
-		printf("C:woke up, gonna eat\n");
 		int numConsumed = consumeBuffer(dlFile);
-		printf("C:digested %d datagrams\n", numConsumed);
+		printf("C:consumed %d datagrams\n", numConsumed);
 
 		pthread_mutex_unlock(&mtLock);
 
@@ -498,7 +496,7 @@ int consumeBuffer(FILE * fPointer) {
 	}
 	
 	if(getWindowSize() >= 2){
-		printBufferContents();
+		//printBufferContents();
 		do {
 			count++;
 			//Write out the data to the File
