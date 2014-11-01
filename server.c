@@ -970,6 +970,7 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
             else{
                 ++cWinPercent;
                 if(cWinPercent%cwin == 0){
+                    printf("INCREMENTING ssthresh\n");
                     ++ssthresh;
                     cwin = 1;
                     cWinPercent = 0;
