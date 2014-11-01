@@ -4,16 +4,18 @@
 #include	"unp.h"
 
 struct rtt_info {
-  float		rtt_rtt;	/* most recent measured RTT, in seconds */
-  float		rtt_srtt;	/* smoothed RTT estimator, in seconds */
-  float		rtt_rttvar;	/* smoothed mean deviation, in seconds */
-  float		rtt_rto;	/* current RTO to use, in seconds */
-  int		rtt_nrexmt;	/* # times retransmitted: 0, 1, 2, ... */
-  uint32_t	rtt_base;	/* # sec since 1/1/1970 at start */
+  uint32_t		rtt_rtt;	/* most recent measured RTT, in milliseconds */
+  uint32_t		rtt_srtt;	/* smoothed RTT estimator, in milliseconds */
+  uint32_t		rtt_rttvar;	/* smoothed mean deviation, in milliseconds */
+  uint32_t		rtt_rto;	/* current RTO to use, in milliseconds */
+  int			rtt_nrexmt;	/* # times retransmitted: 0, 1, 2, ... */
+  uint32_t		rtt_base;	/* # millisec since 1/1/1970 at start */
 };
 
-#define	RTT_RXTMIN      1	/* min retransmit timeout value, in seconds */
-#define	RTT_RXTMAX      3	/* max retransmit timeout value, in seconds */
+#define RTT_SCALE 		1000 /* We use the millisecond scale */
+
+#define	RTT_RXTMIN      1*RTT_SCALE	/* min retransmit timeout value, in milliseconds */
+#define	RTT_RXTMAX      3*RTT_SCALE	/* max retransmit timeout value, in milliseconds */
 #define	RTT_MAXNREXMT 	12	/* max # times to retransmit */
 
 				/* function prototypes */
