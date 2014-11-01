@@ -14,12 +14,13 @@ struct rtt_info {
 
 #define RTT_SCALE 		1000 /* We use the millisecond scale */
 
-#define	RTT_RXTMIN      1*RTT_SCALE	/* min retransmit timeout value, in milliseconds */
-#define	RTT_RXTMAX      3*RTT_SCALE	/* max retransmit timeout value, in milliseconds */
+#define	RTT_RXTMIN      1000	/* min retransmit timeout value, in milliseconds */
+#define	RTT_RXTMAX      3000	/* max retransmit timeout value, in milliseconds */
 #define	RTT_MAXNREXMT 	12	/* max # times to retransmit */
 
 				/* function prototypes */
 void	 rtt_debug(struct rtt_info *);
+void	 rtt_debug2(struct rtt_info *, char* s);
 void	 rtt_init(struct rtt_info *);
 void	 rtt_newpack(struct rtt_info *);
 int		 rtt_start(struct rtt_info *);

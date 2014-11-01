@@ -6,10 +6,13 @@
 #include "dtghdr.h"
 #include "fileChunking.h"
 #include <setjmp.h>
+#include "unprtt.h"
 static void sig_alarm(int signo);
 static void sig_alarm2(int signo);
 static sigjmp_buf jmpbuf;
 static sigjmp_buf jmpbuf2;
+static struct rtt_info   rttinfo;
+static int  rttinit = 0;
 int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
 int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
 int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
@@ -424,7 +427,7 @@ void signalChildHandler(int signal){
 
 
 int main (int argc, char ** argv){
-	//Register sigchild handler to pick up on exiting child server processes
+    //Register sigchild handler to pick up on exiting child server processes
     signal(SIGCHLD, signalChildHandler);
 
     //Read from server.in file
@@ -870,10 +873,21 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
     signal(SIGALRM, sig_alarm);
     i = 0;
     received = 0;
+
+    if (rttinit == 0) {
+        rtt_init(&rttinfo);     /* first time we're called */
+        rttinit = 1;
+        rtt_d_flag = 1;
+    }
+    rtt_newpack(&rttinfo);
+
+    int wasResending = 0;
+    uint32_t delta = 0;            
+
     while(received< numChunks){  
       loop: 
         numToSend = minimum(cwin, advWin);
-        printf("minimum: %d\n", numToSend);
+        //printf("minimum: %d\n", numToSend);
         sent = 0;
         //Mask out sig alarm
         while(sent< numToSend && i < numChunks){
@@ -900,55 +914,98 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
         //printBufferContents();
      sendagain:
         numToSend = minimum(cwin, advWin);
-        printf("send again minimum: %d\n", numToSend);   
+        //printf("send again minimum: %d\n", numToSend);   
         sent = 0;
         ServerBufferNode * ptr = start;
         int adjustedNumTorecv=0;
+        DtgHdr* hdr2 = getDtgHdrFromMsg(ptr->dataPayload);
+        hdr2->ts  = htons(rtt_ts(&rttinfo));
+        printf("numToSend:%d\n", numToSend);
         while(sent < numToSend){
             if(ptr->occupied == 1){
-                printf("Sending sequence number: %d\n", ptr->seq);
+                //printf("Sending sequence number: %d\n", ptr->seq);
                 sendmsg(fd, ptr->dataPayload, sockOpts);
+                if (adjustedNumTorecv == 0) {
+                    float rto = (rtt_start(&rttinfo) - delta)/ 1000.0;
+                    
+                    alarm(rto);
+                    
+                    printf("Sent SEQ=%u, TS=%u.Alarm with RTO=%f, delta=%u ms \n", ntohs(hdr2->seq),ntohs(hdr2->ts), rto, delta);
+                    rtt_debug2(&rttinfo, "alarm");
+                }
                 adjustedNumTorecv++;
             }
             ptr=ptr->right;
             sent++;
-        }
-        //unmask sig alarms
-        
-        //alarm(2);//RTO 
+        }           
 
-        printf("Set Alarm\n");
         if(sigsetjmp(jmpbuf,1) != 0){
-            printf("ABOUT TO REPEAT\n");
+            if (rtt_timeout(&rttinfo) < 0) {
+                printf("\t\tToo many retransmissions, file transfer will be terminated\n");
+                rttinit = 0;
+                return 0;
+            }
+            rtt_debug2(&rttinfo, "\t\t sigsetjmp, about to repeat");
+            wasResending = 1;
             goto sendagain;
         }
-
 
         //received = 0;
         int testing = 0;
         while(testing < adjustedNumTorecv){
-            alarm(2);
-            printf("In recv While loop\n");
+            //alarm(2);
+            //printf("In recv While loop\n");
             MsgHdr rmsg;
             DtgHdr rhdr;
             bzero(&rhdr, sizeof(rhdr));  
             bzero(&rmsg, sizeof(rmsg));     
             fillHdr2(&rhdr, &rmsg, NULL, 0);
+
             res = recvmsg(fd, &rmsg, 0);
+            
+            alarm(0);
+            
             if (res == -1) 
                 return;
-                //continue;
-            //printf("Receive res=%d\n", res);
             int ack = ntohs(rhdr.ack);
             updateAckField(ack);
-            int toAdd = removeNodesContents(ack); 
+            
+            struct timeval tv;
+            if(gettimeofday(&tv, NULL) != 0){
+                printf("Error getting time to set to packet.\n");
+                return -1;
+            }
+            uint32_t now = ((tv.tv_sec * 1000) + tv.tv_usec / 1000); //this will get the timestamp in msec            
+
+            ServerBufferNode* oldestItmNode = getOldestInTransitNode();            
+            uint32_t b = oldestItmNode->ts;
+            uint32_t roundTripTime = now - b;            
+            int toAdd = removeNodesContents(ack); //remove retirieved ACK from circ.
+            oldestItmNode = getOldestInTransitNode();            
+            uint32_t c = 0;
+            if (oldestItmNode != NULL) {                
+                //c = getDtgHdrFromMsg(oldestItmNode->dataPayload)->ts;                
+                c = oldestItmNode->ts;
+                 // delta is needed here to simulate the time as if it is Reply-Answer, Reply-Answer scenario            
+                if (wasResending == 0) {
+                    //printf("\tExtracted from ACK=%d TS=%d",ntohs(h->ack), ntohs(h->ts));
+                    delta = now - c;
+                }
+            }
+            printf("RTT: %u, DELTA: %u, b:%u, c:%u\n", roundTripTime, delta, b, c);
+            rtt_stop(&rttinfo, roundTripTime);
+            
+            printf("\tRTT stop for ACK=%d\n", ntohs(rhdr.ack));
+            rtt_debug2(&rttinfo, "\trtt_stop");            
+            wasResending = 0;   
+
             advWin = ntohs(rhdr.advWnd);
             
-            printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
-            printf("to Add:%d\n", toAdd);
+            printf("\tReceived ACK=%d, ts:%u, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.ts), ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+            //printf("to Add:%d\n", toAdd);
             received = received + toAdd;
             testing = testing + toAdd;
-            printf("received: %d\n", received);
+            //printf("received: %d\n", received);
             //testing++;
             if(ssFlag == 0){
                 ++cwin;
@@ -962,8 +1019,8 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
                     ++cwin;
                     cWinPercent = 0;
                 }
-            }
-            alarm(0);
+            }                                                
+            
             //alarm(2);
             /*if(received < numChunks && testing == numToSend){
                 printf("received:%d\n", received);
@@ -1033,7 +1090,6 @@ int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
 }
 
 static void sig_alarm(int signo){
-    printf("SIGALRM WENT OFF\n");
     siglongjmp(jmpbuf,1);
 }
 static void sig_alarm2(int signo){

@@ -28,7 +28,7 @@ int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost);
 int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean, float dropRate);
 void* consumeChunkRoutine (void *arg);
 void* fillSlidingWndRoutine(void * arg);
-int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate);
+int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate, int recvTs);
 
 pthread_mutex_t mtLock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -261,7 +261,7 @@ void* fillSlidingWndRoutine(void * arg) {
 			//printf("P: added, n = %d\n", n);									
 			
 			pthread_mutex_unlock(&mtLock);
-			respondAckOrDrop(sockfd, sockOptions, 0, targs->dropRate);
+			respondAckOrDrop(sockfd, sockOptions, 0, targs->dropRate, hdr->ts);
 		}
 		else {
 			printf("P:Got a FIN\n");
@@ -271,7 +271,7 @@ void* fillSlidingWndRoutine(void * arg) {
 			//sendFinToConsumer(targs);
 
 			// Send a final ACK which should terminate the connection
-			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG, targs->dropRate);
+			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG, targs->dropRate, hdr->ts);
 			pthread_mutex_unlock(&mtLock);
 			printf("wanna exit\n");
 			break;
@@ -282,7 +282,7 @@ void* fillSlidingWndRoutine(void * arg) {
 }
 
 // Used to send ACKs to server or FIN+ACK
-int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate) {
+int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate, int recvTs) {
 	DtgHdr hdr;
 	bzero(&hdr, sizeof(hdr));
 	printf("PRINT ACK:%d\n", getAckToSend());
@@ -290,6 +290,7 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRat
 	hdr.flags = htons(ACK_FLAG | addFlags);
 	printf("Adv window size: %d\n", availableWindowSize());
 	hdr.advWnd = htons(availableWindowSize());
+	hdr.ts = recvTs; //network
 	printf("P: respond with ACK:%d, flags: %d\n", ntohs(hdr.ack), ntohs(hdr.flags));
 	
 	MsgHdr msg;

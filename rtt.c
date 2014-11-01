@@ -94,6 +94,10 @@ void rtt_stop(struct rtt_info *ptr, uint32_t ms)
 	ptr->rtt_rttvar += (delta - ptr->rtt_rttvar) / 4;	/* h = 1/4 */
 
 	ptr->rtt_rto = rtt_minmax(RTT_RTOCALC(ptr));
+
+	uint32_t newRto = (ptr)->rtt_rttvar << 2;
+	newRto = newRto + (ptr)->rtt_srtt;
+	printf("RTT_STOP. RTO:%u, RTTVAR:%u\n", ptr->rtt_rto, newRto);
 }
 /* end rtt_stop */
 
@@ -106,7 +110,7 @@ void rtt_stop(struct rtt_info *ptr, uint32_t ms)
 int rtt_timeout(struct rtt_info *ptr)
 {
 	ptr->rtt_rto *= 2;		/* next RTO */
-	ptr->rtt_rto = rtt_minmax(rtt_minmax(ptr->rtt_rto));
+	ptr->rtt_rto = rtt_minmax(ptr->rtt_rto);
 	if (++ptr->rtt_nrexmt > RTT_MAXNREXMT)
 		return(-1);			/* time to give up for this packet */
 	return(0);
@@ -126,5 +130,17 @@ void rtt_debug(struct rtt_info *ptr)
 			ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto); */
 	fprintf(stderr, "rtt = %d, srtt = %d, rttvar = %d, rto = %d\n",
 			ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto);
+	fflush(stderr);
+}
+
+void rtt_debug2(struct rtt_info *ptr, char* s)
+{
+	if (rtt_d_flag == 0)
+		return;
+
+	/*fprintf(stderr, "rtt = %.3f, srtt = %.3f, rttvar = %.3f, rto = %.3f\n",
+			ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto); */
+	fprintf(stderr, "%s rtt = %d, srtt = %d, rttvar = %d, rto = %d\n",
+			s, ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto);
 	fflush(stderr);
 }
