@@ -10,6 +10,7 @@ struct threadArgs {
 	uint32_t fin;
 	int seed;
 	int mean;
+	float dropRate;
 };
 
 typedef struct threadArgs ThreadArgs;

@@ -45,10 +45,11 @@ int parseInput(InpCd* dest) {
 				}
 				break;
 			case 5:
-				if (parseInt(buf, &dest->dtLossProb) != 0) {
+				dest->dtLossProb = atof(buf);
+				/*if (parseInt(buf, &dest->dtLossProb) != 0) {
 					printf("Couldn't parse loss probability\n");
 					return 1;
-				}
+				}*/
 				break;
 			case 6:
 				if (parseInt(buf, &dest->mean) != 0) {

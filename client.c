@@ -25,10 +25,10 @@ int Finish = 0;
 void printBufferContents();
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
 int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost);
-int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean);
+int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean, float dropRate);
 void* consumeChunkRoutine (void *arg);
 void* fillSlidingWndRoutine(void * arg);
-int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags);
+int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate);
 
 pthread_mutex_t mtLock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -38,7 +38,7 @@ int main()
 	if (parseInput(inputData) != 0) {
 		return 1;
 	}
-	
+	printf("DropRate: %f\n",inputData->dtLossProb);
 	//set the random seed for drand
 	srand48(inputData->rndSeed);
 
@@ -123,11 +123,11 @@ int main()
 	MsgHdr smsg;
 	bzero(&smsg, sizeof(smsg));
 	printf("Reconnected to new server address %s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
-	
+	//TODO simulate dropping for third Handshake
 	if (sendThirdHandshake(sockfd, sockOptions, srvSeqHost) == 0) {
 		return 1;
 	}
-	downloadFile(sockfd, inputData->fileName, inputData->slidWndSize, sockOptions, inputData->rndSeed, inputData->mean);
+	downloadFile(sockfd, inputData->fileName, inputData->slidWndSize, sockOptions, inputData->rndSeed, inputData->mean, inputData->dtLossProb);
 
 	return 0;
 }
@@ -161,7 +161,7 @@ void* consumeChunkRoutine(void *arg) {
 	strcpy(fileName, "cli_");
 	strcat(fileName, tmpFn);
 	FILE* dlFile = fopen(fileName, "w+");
-	int mean = 1234;
+	//int mean = 1234;
 	for(;;) {
 		double drandVal = (double) drand48();
 		drandVal = log(drandVal);
@@ -197,7 +197,16 @@ void sendFinToConsumer(ThreadArgs* targs){
 	targs->fin = 1;
 	pthread_mutex_unlock(&mtLock);
 }
-
+int toDropMsg(float dropRate){
+	float drandVal = (float) drand48();
+	printf("toDropMsg:: dropRate: %f, randValue%f \n", dropRate,drandVal);
+	if(drandVal <= dropRate ){
+		return 1;//dropAck
+	}	
+	else{
+		return 0;//Ack back
+	}
+}
 void* fillSlidingWndRoutine(void * arg) {
 	ThreadArgs* targs = (ThreadArgs*)arg;	
 	pthread_mutex_lock(&mtLock);
@@ -236,8 +245,13 @@ void* fillSlidingWndRoutine(void * arg) {
 		}
 		
 		//TODO: simulate dropping of receiving
+
 		int sentFlags = ntohs(hdr->flags);		
 		printf("P: received seq:%d, flags: %d\n", ntohs(hdr->seq), sentFlags);
+		if(toDropMsg(targs->dropRate) == 1){
+			printf("Message dropped.\n");
+			continue;
+		}		
 		if (sentFlags != FIN_FLAG) {		
 			pthread_mutex_lock(&mtLock);
 			//char* s = extractBuffFromHdr(*rmsg);
@@ -249,7 +263,7 @@ void* fillSlidingWndRoutine(void * arg) {
 			//printf("P: added, n = %d\n", n);									
 			
 			pthread_mutex_unlock(&mtLock);
-			respondAckOrDrop(sockfd, sockOptions, 0);
+			respondAckOrDrop(sockfd, sockOptions, 0, targs->dropRate);
 		}
 		else {
 			printf("P:Got a FIN\n");
@@ -259,7 +273,7 @@ void* fillSlidingWndRoutine(void * arg) {
 			//sendFinToConsumer(targs);
 
 			// Send a final ACK which should terminate the connection
-			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG);
+			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG, targs->dropRate);
 			pthread_mutex_unlock(&mtLock);
 			printf("wanna exit\n");
 			break;
@@ -270,7 +284,7 @@ void* fillSlidingWndRoutine(void * arg) {
 }
 
 // Used to send ACKs to server or FIN+ACK
-int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags) {
+int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate) {
 	DtgHdr hdr;
 	bzero(&hdr, sizeof(hdr));
 	printf("PRINT ACK:%d\n", getAckToSend());
@@ -284,6 +298,11 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags) {
 	bzero(&msg, sizeof(msg));	
 	
 	//TODO: sim.dropping of ACKing
+	if(toDropMsg(dropRate) == 1 ){
+		//Ack dropped
+		printf("ACK dropped.\n");
+		return 2;
+	}
 
 	fillHdr2(&hdr, &msg, NULL, 0);
 	if (sendmsg(sockfd, &msg, sockOptions) == -1) {
@@ -294,7 +313,7 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags) {
 	return 1;
 }
 
-int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean ) {
+int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean, float dropRate) {
 	int res;
 	
 	ThreadArgs* targs = malloc(sizeof(struct threadArgs));
@@ -303,7 +322,7 @@ int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions
 	targs->sockOptions = sockOptions;
 	targs->seed = seed;
 	targs->mean = mean;
-
+	targs->dropRate = dropRate;
 	
 	res = allocateCircularBuffer(slidingWndSize);
 	if (res == -1) {
@@ -498,14 +517,14 @@ int consumeBuffer(FILE * fPointer) {
 	}
 	
 	if(getWindowSize() >= 2){
-		printBufferContents();
+		//printBufferContents();
 		do {
 			count++;
 			//Write out the data to the File
 			MsgHdr *mptr = start->dataPayload;
 			char *toWrite = extractBuffFromHdr(*mptr);
 			//int seqNum = data[0].iov_base = hdr;
-			printf("Pack Sequence Number: %d\n Contents: %s\n", start->seqNum, start->cptr);
+			//printf("Pack Sequence Number: %d\n Contents: %s\n", start->seqNum, start->cptr);
 			//fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
 
 			// ********
