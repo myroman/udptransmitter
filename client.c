@@ -210,7 +210,7 @@ void* fillSlidingWndRoutine(void * arg) {
 	pthread_mutex_lock(&mtLock);
 	int sockfd = targs->sockfd, sockOptions = targs->sockOptions;
 	pthread_mutex_unlock(&mtLock);
-	
+	int maxRecievedSeq = 1;
 	int bufSize = getDtgBufSize();
 	//char* chunkBuf = malloc(bufSize);
 	int i, n;
@@ -255,8 +255,21 @@ void* fillSlidingWndRoutine(void * arg) {
 			//char* s = extractBuffFromHdr(*rmsg);
 			printf("P: gonna add to buffer seq=%d\n", ntohs(hdr->seq));
 			//printf("P:buf %s", s);
-
-			int n = addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
+			if(availableWindowSize() == 0){
+				printf("NO SPACE LEFT IN BUFFER. DISGARDING MESSAGE\n");
+				//pthread_mutex_unlock(&mtLock);
+				//continue;
+			}
+			else if(ntohs(hdr->seq) < maxRecievedSeq){
+				printf("DUPLICATE MESSAGE! ALREADY PROCESSED AND ADDED TO BUFFER\n");
+				//printBufferContents();
+			}
+			else{
+				
+				maxRecievedSeq = ntohs(hdr->seq);
+				int n = addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
+			}
+			
 			//printBufferContents();
 			//printf("P: added, n = %d\n", n);									
 			

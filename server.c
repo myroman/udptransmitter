@@ -870,10 +870,10 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
     signal(SIGALRM, sig_alarm);
     i = 0;
     received = 0;
-    while(received< numChunks){  
+    int maxAckReceived = 2;
+    while(maxAckReceived < (numChunks+1)){  
       loop: 
         numToSend = minimum(cwin, advWin);
-        printf("minimum: %d\n", numToSend);
         sent = 0;
         //Mask out sig alarm
         while(sent< numToSend && i < numChunks){
@@ -896,11 +896,15 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
             ++sent;
             ++i;
         }
-
+        //unmask
         //printBufferContents();
      sendagain:
+        //mask sigalarm
+        //printBufferContents();
+        //printf("Start: %d, end: %d\n", start->seq, end->seq);
         numToSend = minimum(cwin, advWin);
-        printf("send again minimum: %d\n", numToSend);   
+        printf("Cwin: %d, ssthresh: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
+        //printf("send again minimum: %d\n", numToSend);   
         sent = 0;
         ServerBufferNode * ptr = start;
         int adjustedNumTorecv=0;
@@ -915,11 +919,19 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
         }
         //unmask sig alarms
         
-        //alarm(2);//RTO 
 
-        printf("Set Alarm\n");
+        //printf("Set Alarm\n");
         if(sigsetjmp(jmpbuf,1) != 0){
             printf("ABOUT TO REPEAT\n");
+            if(cwin/2 >0){
+                ssthresh = cwin/2;
+            }
+            else{
+                ssthresh = 1;
+            }
+            cwin = 1;
+            cWinPercent = 0;
+            ssFlag = 0;
             goto sendagain;
         }
 
@@ -928,7 +940,6 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
         int testing = 0;
         while(testing < adjustedNumTorecv){
             alarm(2);
-            printf("In recv While loop\n");
             MsgHdr rmsg;
             DtgHdr rhdr;
             bzero(&rhdr, sizeof(rhdr));  
@@ -940,40 +951,32 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
                 //continue;
             //printf("Receive res=%d\n", res);
             int ack = ntohs(rhdr.ack);
+            maxAckReceived = ack;
             updateAckField(ack);
             int toAdd = removeNodesContents(ack); 
             advWin = ntohs(rhdr.advWnd);
             
             printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
-            printf("to Add:%d\n", toAdd);
-            received = received + toAdd;
             testing = testing + toAdd;
-            printf("received: %d\n", received);
             //testing++;
             if(ssFlag == 0){
                 ++cwin;
                 if(cwin>=ssthresh){
                     ssFlag = 1;
+                    cWinPercent = 0;
+                    ++cWinPercent;
                 }                
             }
             else{
                 ++cWinPercent;
                 if(cWinPercent%cwin == 0){
-                    ++cwin;
+                    ++ssthresh;
+                    cwin = 1;
                     cWinPercent = 0;
                 }
             }
-            alarm(0);
-            //alarm(2);
-            /*if(received < numChunks && testing == numToSend){
-                printf("received:%d\n", received);
-                goto loop;
-            }*/
+            alarm(0); //reset the alarm to zero
         }
-        /*if(received < numChunks){
-            printf("received:%d\n", received);
-            goto loop;
-        }*/
     }
     printf("File transfer complete\n");
     return 1;
@@ -1016,7 +1019,8 @@ int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
         fillHdr2(&hdr2, &msg2, NULL, 0);
         if((res = recvmsg(sockfd, &msg2, sockOpts)) == -1) {
             printf("Error when reading final ACK\n");
-            continue;
+            break;
+            //continue;
         }
         int respFlags = ntohs(hdr2.flags);
         printf("Finally received ack:%d, flags:%d\n", ntohs(hdr2.ack), respFlags);
