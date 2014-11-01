@@ -25,6 +25,9 @@ char* extractBuffFromHdr(MsgHdr msg) {
 	return msg.msg_iov[1].iov_base;
 	//return msg.msg_iov[1].iov_base;
 }
+DtgHdr* getDtgHdrFromMsg(MsgHdr* msg) {
+	return msg->msg_iov[0].iov_base;
+}
 size_t getDtgBufSize() {	
 	return (MAX_DTG_SIZE - sizeof(struct dtghdr));
 }

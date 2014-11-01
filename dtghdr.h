@@ -25,6 +25,7 @@ void fillHdr(DtgHdr* hdr, MsgHdr* msg, void* buf, size_t bufSize, SA* sockAddr, 
 void fillHdr2(DtgHdr* hdr, MsgHdr* msg, void* buf, size_t bufSize);
 
 char* extractBuffFromHdr(MsgHdr msg); 
+DtgHdr* getDtgHdrFromMsg(MsgHdr* msg);
 
 size_t getDtgBufSize();
 
