@@ -7,7 +7,9 @@
 #include "fileChunking.h"
 #include <setjmp.h>
 static void sig_alarm(int signo);
+static void sig_alarm2(int signo);
 static sigjmp_buf jmpbuf;
+static sigjmp_buf jmpbuf2;
 int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
 int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
 int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
@@ -262,7 +264,7 @@ ServerBufferNode * findSeqNode(uint32_t seqNum){
 * @ return - is the number of elements in the NODE that received an ACK in the process
 */ 
 int removeNodesContents(uint32_t ack){
-    printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
+    //printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
     ServerBufferNode * ptr = start;
     
     int count = 0;
@@ -284,8 +286,8 @@ int removeNodesContents(uint32_t ack){
         
     } while(start != end->right);
     //start = ptr;
-    printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
-    printf("Count is : %d\n", count);
+    //printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
+    //printf("Count is : %d\n", count);
     //printf("start occupied %d, start seq %d\n", start->occupied, start->seq);
     return count;
 }
@@ -321,7 +323,7 @@ uint32_t getSeqNumber(){
 int addNodeContents(int seqNum, MsgHdr * data){
     if(availableWindowSize() <= 0)
         return -1 ;
-    printf("AddNodeContents: start: %d, end: %d\n", start->seq, end->seq);
+    //printf("AddNodeContents: start: %d, end: %d\n", start->seq, end->seq);
     if(start->occupied == 0){
         start->seq = seqNum;
         start->ackCount = 0;
@@ -866,10 +868,8 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
     MsgHdr *msg;
     DtgHdr *hdr;
     signal(SIGALRM, sig_alarm);
-    //for(i = 0; i< numChunks; i++){
     i = 0;
     received = 0;
-    //printf("Before: %d\n", getSeqNumber());
     while(received< numChunks){  
       loop: 
         numToSend = minimum(cwin, advWin);
@@ -877,7 +877,7 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
         sent = 0;
         //Mask out sig alarm
         while(sent< numToSend && i < numChunks){
-            printf("i: %d, sent: %d\n", i, sent);
+            //printf("i: %d, sent: %d\n", i, sent);
             //printf("Before: %d\n", getSeqNumber());
             int toSendSeq = getSeqNumber();
             msg = malloc(sizeof(struct msghdr)); 
@@ -899,29 +899,36 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
 
         //printBufferContents();
      sendagain:
-        numToSend = minimum(cwin, advWin);   
+        numToSend = minimum(cwin, advWin);
+        printf("send again minimum: %d\n", numToSend);   
         sent = 0;
         ServerBufferNode * ptr = start;
+        int adjustedNumTorecv=0;
         while(sent < numToSend){
-            printf("Sending sequence number: %d\n", ptr->seq);
-            sendmsg(fd, ptr->dataPayload, sockOpts);
+            if(ptr->occupied == 1){
+                printf("Sending sequence number: %d\n", ptr->seq);
+                sendmsg(fd, ptr->dataPayload, sockOpts);
+                adjustedNumTorecv++;
+            }
             ptr=ptr->right;
             sent++;
         }
         //unmask sig alarms
         
-        alarm(2);//RTO 
+        //alarm(2);//RTO 
 
-        printf("SetAlarm\n");
+        printf("Set Alarm\n");
         if(sigsetjmp(jmpbuf,1) != 0){
-            printf("about to repeat\n");
+            printf("ABOUT TO REPEAT\n");
             goto sendagain;
         }
 
 
         //received = 0;
         int testing = 0;
-        while(testing < numToSend){
+        while(testing < adjustedNumTorecv){
+            alarm(2);
+            printf("In recv While loop\n");
             MsgHdr rmsg;
             DtgHdr rhdr;
             bzero(&rhdr, sizeof(rhdr));  
@@ -941,6 +948,7 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
             printf("to Add:%d\n", toAdd);
             received = received + toAdd;
             testing = testing + toAdd;
+            printf("received: %d\n", received);
             //testing++;
             if(ssFlag == 0){
                 ++cwin;
@@ -956,6 +964,7 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
                 }
             }
             alarm(0);
+            //alarm(2);
             /*if(received < numChunks && testing == numToSend){
                 printf("received:%d\n", received);
                 goto loop;
@@ -974,12 +983,15 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
     DtgHdr hdr;
     bzero(&hdr, sizeof(hdr));
-    hdr.seq = htons(lastSeq + 1);
+    int toSendSeq = getSeqNumber();
+    printf("FINISH CONNECTION: sequence number of ACK: %d\n", toSendSeq);
+    hdr.seq = htons(toSendSeq);
     hdr.flags = htons(FIN_FLAG);
-
+    signal(SIGALRM, sig_alarm2);
     MsgHdr msg;
     bzero(&msg, sizeof(msg));
     fillHdr2(&hdr, &msg, NULL, 0);
+  sendagain2:
     printf("Finish connection, send seq:%d, flags:%d\n", ntohs(hdr.seq), ntohs(hdr.flags));
     int res = sendmsg(sockfd, &msg, sockOpts);
     if (res == -1) {
@@ -988,6 +1000,12 @@ int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
     }
     printf("Waiting for ACK\n");
     
+    printf("Set Alarm\n");
+    if(sigsetjmp(jmpbuf2,1) != 0){
+        printf("ABOUT TO REPEAT\n");
+        goto sendagain2;
+    }
+    alarm(2);
     DtgHdr hdr2;
     MsgHdr msg2;
     
@@ -1015,6 +1033,10 @@ int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
 }
 
 static void sig_alarm(int signo){
-    printf("SignalAlarm\n");
+    printf("SIGALRM WENT OFF\n");
     siglongjmp(jmpbuf,1);
+}
+static void sig_alarm2(int signo){
+    printf("SIGALRM2 WENT OFF\n");
+    siglongjmp(jmpbuf2,1);
 }
