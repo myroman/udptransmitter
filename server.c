@@ -5,7 +5,9 @@
 #include "unp.h"
 #include "dtghdr.h"
 #include "fileChunking.h"
-
+#include <setjmp.h>
+static void sig_alarm(int signo);
+static sigjmp_buf jmpbuf;
 int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
 int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
 int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
@@ -260,26 +262,31 @@ ServerBufferNode * findSeqNode(uint32_t seqNum){
 * @ return - is the number of elements in the NODE that received an ACK in the process
 */ 
 int removeNodesContents(uint32_t ack){
+    printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
     ServerBufferNode * ptr = start;
+    
     int count = 0;
     do{
-        if(ptr->seq < ack && ptr->occupied == 1){
+        if(start->seq < ack && start->occupied == 1){
             count++;
-            ptr->seq = 0;
-            ptr->occupied = 0;
-            ptr->ackCount = 0;
-            ptr->ts = 0;
-            ptr->dataPayload = NULL;
+            start->seq = 0;
+            start->occupied = 0;
+            start->ackCount = 0;
+            start->ts = 0;
+            start->dataPayload = NULL;
+            start = start->right;
             //break;
             //What should i do with MsgHdr 
         }
         else{
             break;
         }
-        ptr = ptr->right;
-    } while(ptr != end->right);
-    start = ptr;
-    printf("start occupied %d, start seq %d\n", start->occupied, start->seq);
+        
+    } while(start != end->right);
+    //start = ptr;
+    printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
+    printf("Count is : %d\n", count);
+    //printf("start occupied %d, start seq %d\n", start->occupied, start->seq);
     return count;
 }
 
@@ -314,26 +321,45 @@ uint32_t getSeqNumber(){
 int addNodeContents(int seqNum, MsgHdr * data){
     if(availableWindowSize() <= 0)
         return -1 ;
-    ServerBufferNode * ptr = end;
-    if(end->occupied == 1)
-        ptr = ptr->right;
-    //if(ptr != 0)
-    //  return -1;//this should never happen of we maintain the window properly
+    printf("AddNodeContents: start: %d, end: %d\n", start->seq, end->seq);
+    if(start->occupied == 0){
+        start->seq = seqNum;
+        start->ackCount = 0;
+        start->occupied = 1;//symbolizes that this buffer is occupied
+        start->dataPayload = data;//assign the data payload that is going to be maintaine
 
-    ptr->seq = seqNum;
-    ptr->ackCount = 0;
-    ptr->occupied = 1;//symbolizes that this buffer is occupied
-    ptr->dataPayload = data;//assign the data payload that is going to be maintaine
+        struct timeval tv;
+        if(gettimeofday(&tv, NULL) != 0){
+            printf("Error getting time to set to packet.\n");
+            return -1;
+        }
 
-    struct timeval tv;
-    if(gettimeofday(&tv, NULL) != 0){
-        printf("Error getting time to set to packet.\n");
-        return -1;
+        start->ts = ((tv.tv_sec * 1000) + tv.tv_usec / 1000); //this will get the timestamp in msec
+        end = start;
+        return 1 ;
     }
+    else{
+        ServerBufferNode * ptr = end;
+        if(end->occupied == 1)
+            ptr = ptr->right;
+        //if(ptr != 0)
+        //  return -1;//this should never happen of we maintain the window properly
 
-    ptr->ts = ((tv.tv_sec * 1000) + tv.tv_usec / 1000); //this will get the timestamp in msec
-    end = ptr;
-    return 1 ;
+        ptr->seq = seqNum;
+        ptr->ackCount = 0;
+        ptr->occupied = 1;//symbolizes that this buffer is occupied
+        ptr->dataPayload = data;//assign the data payload that is going to be maintaine
+
+        struct timeval tv;
+        if(gettimeofday(&tv, NULL) != 0){
+            printf("Error getting time to set to packet.\n");
+            return -1;
+        }
+
+        ptr->ts = ((tv.tv_sec * 1000) + tv.tv_usec / 1000); //this will get the timestamp in msec
+        end = ptr;
+        return 1 ;
+    }
 }
 
 /*
@@ -836,30 +862,66 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
     int ssFlag = 0;
     int cWinPercent= 0;
     int advWin = cWinSize;
+    int totalSent = 0;
     MsgHdr *msg;
     DtgHdr *hdr;
-    for(i = 0; i< numChunks; i++){
-        
+    signal(SIGALRM, sig_alarm);
+    //for(i = 0; i< numChunks; i++){
+    i = 0;
+    received = 0;
+    //printf("Before: %d\n", getSeqNumber());
+    while(received< numChunks){  
+      loop: 
         numToSend = minimum(cwin, advWin);
         printf("minimum: %d\n", numToSend);
         sent = 0;
-        while(sent< numToSend){
+        //Mask out sig alarm
+        while(sent< numToSend && i < numChunks){
+            printf("i: %d, sent: %d\n", i, sent);
+            //printf("Before: %d\n", getSeqNumber());
+            int toSendSeq = getSeqNumber();
             msg = malloc(sizeof(struct msghdr)); 
             hdr = malloc(sizeof(struct dtghdr));
             bzero(hdr, sizeof(struct dtghdr));
             bzero(msg, sizeof(struct msghdr));
-            hdr->seq = htons(getSeqNumber());//set the sequence number
+            hdr->seq = htons(toSendSeq);//set the sequence number
             hdr->flags = htons(SYN_FLAG);//set the flags field
             if (i == numChunks -1) {
                 hdr->chl = htons(lastChunkRem);
             }
             fillHdr2(hdr, msg, chunks[i], getDtgBufSize());
-            ret =addNodeContents((i+2), msg);
-            res = sendmsg(fd, msg, sockOpts);
+            
+            ret =addNodeContents(toSendSeq, msg);
+            //res = sendmsg(fd, msg, sockOpts);
             ++sent;
+            ++i;
         }
-        received = 0;
-        while(received < numToSend){
+
+        //printBufferContents();
+     sendagain:
+        numToSend = minimum(cwin, advWin);   
+        sent = 0;
+        ServerBufferNode * ptr = start;
+        while(sent < numToSend){
+            printf("Sending sequence number: %d\n", ptr->seq);
+            sendmsg(fd, ptr->dataPayload, sockOpts);
+            ptr=ptr->right;
+            sent++;
+        }
+        //unmask sig alarms
+        
+        alarm(2);//RTO 
+
+        printf("SetAlarm\n");
+        if(sigsetjmp(jmpbuf,1) != 0){
+            printf("about to repeat\n");
+            goto sendagain;
+        }
+
+
+        //received = 0;
+        int testing = 0;
+        while(testing < numToSend){
             MsgHdr rmsg;
             DtgHdr rhdr;
             bzero(&rhdr, sizeof(rhdr));  
@@ -867,14 +929,19 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
             fillHdr2(&rhdr, &rmsg, NULL, 0);
             res = recvmsg(fd, &rmsg, 0);
             if (res == -1) 
-                continue;
+                return;
+                //continue;
             //printf("Receive res=%d\n", res);
             int ack = ntohs(rhdr.ack);
             updateAckField(ack);
-            removeNodesContents(ack); 
+            int toAdd = removeNodesContents(ack); 
             advWin = ntohs(rhdr.advWnd);
+            
             printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
-            ++received;
+            printf("to Add:%d\n", toAdd);
+            received = received + toAdd;
+            testing = testing + toAdd;
+            //testing++;
             if(ssFlag == 0){
                 ++cwin;
                 if(cwin>=ssthresh){
@@ -883,13 +950,21 @@ int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, 
             }
             else{
                 ++cWinPercent;
-                if(cWinPercent/cwin == 0){
+                if(cWinPercent%cwin == 0){
                     ++cwin;
                     cWinPercent = 0;
                 }
             }
-
+            alarm(0);
+            /*if(received < numChunks && testing == numToSend){
+                printf("received:%d\n", received);
+                goto loop;
+            }*/
         }
+        /*if(received < numChunks){
+            printf("received:%d\n", received);
+            goto loop;
+        }*/
     }
     printf("File transfer complete\n");
     return 1;
@@ -937,4 +1012,9 @@ int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
     printf("Exceeded the max number of tried to retrieve final ACK from client. Connection will be terminated\n");
 
     return 0;
+}
+
+static void sig_alarm(int signo){
+    printf("SignalAlarm\n");
+    siglongjmp(jmpbuf,1);
 }

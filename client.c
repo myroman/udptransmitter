@@ -524,7 +524,7 @@ int consumeBuffer(FILE * fPointer) {
 			MsgHdr *mptr = start->dataPayload;
 			char *toWrite = extractBuffFromHdr(*mptr);
 			//int seqNum = data[0].iov_base = hdr;
-			//printf("Pack Sequence Number: %d\n Contents: %s\n", start->seqNum, start->cptr);
+			printf("Pack Sequence Number: %d\n Contents: %s\n", start->seqNum, start->cptr);
 			//fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
 
 			// ********
