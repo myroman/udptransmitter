@@ -171,7 +171,7 @@ int allocateCircularBuffer(int numToAllocate){
     }   
     int i;
     if(numToAllocate > 2){
-        printf("Here\n");
+        //printf("Here\n");
         for(i = 0; i < numToAllocate ; i++){
             if(i == 0){
                 //printf("Here HEAD\n");
@@ -364,7 +364,7 @@ int addNodeContents(int seqNum, MsgHdr * data){
 * @ return the number of nodes in our circular buffer
 */
 int getWindowSize(){
-    printf("IN get window size\n");
+    //printf("IN get window size\n");
     int count = 0;
     ServerBufferNode * ptr =cHead;
     do{
@@ -911,7 +911,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
         //printBufferContents();
         //printf("Start: %d, end: %d\n", start->seq, end->seq);
         numToSend = minimum(cwin, advWin);
-        //printf("Cwin: %d, ssthresh: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
+        printf("Cwin: %d, ssthresh: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
         //printf("send again minimum: %d\n", numToSend);   
         sent = 0;
         ServerBufferNode * ptr = start;
@@ -933,14 +933,14 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
 
         if(sigsetjmp(jmpbuf,1) != 0){
             tmpSbn = getOldestInTransitNode();
-            printf("RetrNum=%d for seq=%d", tmpSbn->retransNumber, tmpSbn->seq);
+            //printf("RetrNum=%d for seq=%d", tmpSbn->retransNumber, tmpSbn->seq);
 
             if (rtt_timeout(&rttinfo, tmpSbn) < 0) {
                 printf("\t\tToo many retransmissions, file transfer will be terminated\n");
                 rttinit = 0;
                 return 0;
             }
-            rtt_debug2(&rttinfo, "\t\tAbout to repeat");
+            //rtt_debug2(&rttinfo, "\t\tAbout to repeat");
             if(cwin/2 >0){
                 ssthresh = cwin/2;
             }
@@ -965,15 +965,15 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
             //int rtoi = (int)(rto+0.5);            
             alarm(rto);            
             ServerBufferNode* sbn2 = getOldestInTransitNode();
-            printf("Sent SEQ=%u, TS=%u.Alarm with RTO=%f, delta=%d ms \n", sbn2->seq,sbn2->ts, rto, delta);
-            rtt_debug2(&rttinfo, "alarm");
+            //printf("Sent SEQ=%u, TS=%u.Alarm with RTO=%f, delta=%d ms \n", sbn2->seq,sbn2->ts, rto, delta);
+            //rtt_debug2(&rttinfo, "alarm");
             //printf("In recv While loop\n");
             MsgHdr rmsg;
             DtgHdr rhdr;
             bzero(&rhdr, sizeof(rhdr));  
             bzero(&rmsg, sizeof(rmsg));     
             fillHdr2(&rhdr, &rmsg, NULL, 0);
-printf("Gonna receive...\n");
+            printf("Gonna receive...\n");
             res = recvmsg(fd, &rmsg, 0);
             printf("Received msg\n");
             alarm(0);
@@ -1006,16 +1006,16 @@ printf("Gonna receive...\n");
                     delta = now - c;
                 }
             }
-            printf("RTT: %d, DELTA: %d, b:%d, c:%d\n", roundTripTime, delta, b, c);
+            //printf("RTT: %d, DELTA: %d, b:%d, c:%d\n", roundTripTime, delta, b, c);
             rtt_stop(&rttinfo, roundTripTime);
             
-            printf("\tRTT stop for ACK=%d\n", ntohs(rhdr.ack));
-            rtt_debug2(&rttinfo, "\trtt_stop");            
+            //printf("\tRTT stop for ACK=%d\n", ntohs(rhdr.ack));
+            //rtt_debug2(&rttinfo, "\trtt_stop");            
             wasResending = 0;   
 
             advWin = ntohs(rhdr.advWnd);
             
-            printf("\t\t\tReceived ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+            printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
             testing = testing + toAdd;
             //printf("received: %d\n", received);
             //printf("received: %d\n", received);
