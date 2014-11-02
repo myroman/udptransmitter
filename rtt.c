@@ -7,8 +7,10 @@ int		rtt_d_flag = 0;		/* debug flag; can be set by caller */
  * Calculate the RTO value based on current estimators:
  *		smoothed RTT plus four times the deviation
  */
-#define	RTT_RTOCALC(ptr) ((ptr)->rtt_srtt + (4 * (ptr)->rtt_rttvar))
-
+//#define	RTT_RTOCALC(ptr) ((ptr)->rtt_srtt + (4 * (ptr)->rtt_rttvar))
+int calcRto(struct rtt_info * ptr) {
+	return (ptr)->rtt_srtt + (4 * (ptr)->rtt_rttvar);
+}
 static int rtt_minmax(int rto)
 {
 	if (rto < RTT_RXTMIN)
@@ -28,7 +30,7 @@ void rtt_init(struct rtt_info *ptr)
 	ptr->rtt_rtt    = 0;
 	ptr->rtt_srtt   = 0;
 	ptr->rtt_rttvar = 0.75 * RTT_SCALE;
-	ptr->rtt_rto = rtt_minmax(RTT_RTOCALC(ptr));
+	ptr->rtt_rto = rtt_minmax(calcRto(ptr));
 	/* first RTO at (srtt + (4 * rttvar)) = 3 seconds */
 }
 /* end rtt1 */
@@ -97,7 +99,7 @@ void rtt_stop(struct rtt_info *ptr, int ms)
 	ptr->rtt_rttvar = ptr->rtt_rttvar + diff/4;	/* h = 1/4 */
 	//ptr->rtt_rttvar += (delta - ptr->rtt_rttvar) / 4;	/* h = 1/4 */
 //printf("rttvar=%d\n",ptr->rtt_rttvar);
-	int x = RTT_RTOCALC(ptr);
+	int x = calcRto(ptr);
 	
 	ptr->rtt_rto = rtt_minmax(x);
 //	printf("RTT stop, calc rto=%d, limto=%d\n", x, ptr->rtt_rto);

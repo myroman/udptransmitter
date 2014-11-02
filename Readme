@@ -14,8 +14,20 @@ we needed it else where. These structures made it easier to manage all the infor
 calculate longest prefix matching and if the client was local or not detection. 
 
 RTO Modifications for section 22.5 code:
-TODO:: ROMAN FILL IN PLEASE
-
+Firstly, we changed rtt_stop to use integer arithmetics instead of a float one. To do this we store 
+all relevant variables (including those from rtt_info) as integers. It also affected the calculation 
+of smoothed mean deviation estimator inside of rtt_stop, which started giving obviously 
+the wrong answer. To fix it we splitted its one-line formula into two lines. Next, the scale has been 
+changed from seconds to milliseconds, which resulted in using the coefficient of 1000 in rtt_init, 
+rtt_ts, and in unprtt.h. Finally, we replaced macros function RTT_RTOCALC with natural function calcRto
+because macroses are erron-prone, treat arithmetic syntax a bit differently and unclear in return value type.
+Finally, we took into the account the workflow of our scenario. 
+Ideally we set an alarm using the calculated RTO value, but considering that generally we have workflow like this:
+SEND->SEND->SEND, RECEIVE->RECEIVE->RECEIVE, we adjust RTO using "our" delta which is difference between 
+the moment we received the ACK for chunk 1 and the moment we sent the chunk 2 to the client. Sometimes,
+esp. when there are many losses in network, the delta can be really big, though it should not be bigger
+than RTO itself, that is why when the difference between the RTO and delta is less than 1 second, we
+set it to 1.
 
 ARQ Mechanisms:
 Reliable Data transfer: We have implemented a circular buffer on both the client and the server.
