@@ -10,8 +10,8 @@
 #include <math.h>
 
 const int MAX_SECS_REPLY_WAIT = 5;
-const int MAX_TIMES_TO_SEND_FILENAME = 3;
-const int MAX_TIMES_TO_GET_CHUNK = 3;
+const int MAX_TIMES_TO_SEND_FILENAME = 10;
+const int MAX_TIMES_TO_GET_CHUNK = 12;
 	
 ClientBufferNode * cHead = NULL; 	//cHead is used to setup the circular buffer
 ClientBufferNode * cTail = NULL;	//cTail is used to setup the circular buffer
@@ -204,6 +204,11 @@ void* fillSlidingWndRoutine(void * arg) {
 		for(i = 0;i < MAX_TIMES_TO_GET_CHUNK; ++i) {
 			if ((n=readable_timeo(sockfd, waitTimeoutSeconds)) <= 0) {
 				printf("Producer: No answer within timeout %d s\n", waitTimeoutSeconds);
+				MsgHdr* rmsg = malloc(sizeof(struct msghdr));
+				bzero(rmsg, sizeof(struct msghdr));
+				DtgHdr* hdr = malloc(sizeof(struct dtghdr));
+				bzero(hdr, sizeof(struct dtghdr));
+				respondAckOrDrop(sockfd, sockOptions, 0, targs->dropRate, hdr->ts);
 				continue;
 			}			
 			break;
@@ -365,36 +370,40 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 			return 0;
 		}
 		printf("File name's been just sent, waiting for new server port...\n");
+		int j = 0;
+		for(j = 0; j< 3 ; j++ ){
+			printf("j: %d\n", j);
+			// if 2nd handshake within the timeout, try 1st handshake once more
+			if (readable_timeo(sockfd, MAX_SECS_REPLY_WAIT) > 0) {
+				// Read server ephemeral port number
+				MsgHdr rmsg;
+				DtgHdr secondHsHdr;
+				bzero(&secondHsHdr, sizeof(secondHsHdr));
+				char* buf = (char*)malloc(MAXLINE);
+				fillHdr2(&secondHsHdr, &rmsg, buf, MAXLINE);
+				if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
+					printf("Error on receiving the port number\n");
+					return 0;
+				}
+				if(toDropMsg(dropRate) == 1){//this will simulate dthe dropping of second handshake
+					printf("The port number has been lost when coming to the client, try sending file name again\n");
+					continue;
+				}
+				*srvSeqNumber = ntohs(secondHsHdr.seq);
+				int tmp=0;
+				if (sscanf(buf, "%d", &tmp) == 0) {
+					printf("Server should have been sent port number but sent a string: %s\n", buf);
+					return 1;
+				}
 
-		// if 2nd handshake within the timeout, try 1st handshake once more
-		if (readable_timeo(sockfd, MAX_SECS_REPLY_WAIT) > 0) {
-			// Read server ephemeral port number
-			MsgHdr rmsg;
-			DtgHdr secondHsHdr;
-			bzero(&secondHsHdr, sizeof(secondHsHdr));
-			char* buf = (char*)malloc(MAXLINE);
-			fillHdr2(&secondHsHdr, &rmsg, buf, MAXLINE);
-			if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
-				printf("Error on receiving the port number\n");
-				return 0;
-			}
-			if(toDropMsg(dropRate) == 1){//this will simulate dthe dropping of second handshake
-				printf("The port number has been lost when coming to the client, try sending file name again\n");
-				continue;
-			}
-			*srvSeqNumber = ntohs(secondHsHdr.seq);
-			int tmp=0;
-			if (sscanf(buf, "%d", &tmp) == 0) {
-				printf("Server should have been sent port number but sent a string: %s\n", buf);
-				return 1;
-			}
+				*newPort = tmp;
 
-			*newPort = tmp;
-
-			free(buf);
-			printf("2nd handshake: client has received port:%d (SEQ:%d), going to send out an ACK\n", *newPort, *srvSeqNumber);
-			return 1;			
+				free(buf);
+				printf("2nd handshake: client has received port:%d (SEQ:%d), going to send out an ACK\n", *newPort, *srvSeqNumber);
+				return 1;			
+			}
 		}
+		return 0;
 	}
 	printf("Client didn't receive a valid 2nd handshake after %d times, give up.\n", MAX_TIMES_TO_SEND_FILENAME);
 	return 0;

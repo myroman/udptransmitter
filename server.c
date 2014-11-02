@@ -256,9 +256,9 @@ ServerBufferNode * findSeqNode(uint32_t seqNum){
 * @ return - is the number of elements in the NODE that received an ACK in the process
 */ 
 int removeNodesContents(uint32_t ack){
-    //printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
+    printf("removeNodeContents: start: %d, end: %d, ack: %u\n", start->seq, end->seq, ack);
     ServerBufferNode * ptr = start;
-    
+    //printBufferContents();
     int count = 0;
     do{
         if(start->seq < ack && start->occupied == 1){
@@ -278,6 +278,8 @@ int removeNodesContents(uint32_t ack){
         }
         
     } while(start != end->right);
+    //printBufferContents();
+    //printf("Available Window Size: %d\n", availableWindowSize());
     //start = ptr;
     //printf("removeNodeContents: start: %d, end: %d\n", start->seq, end->seq);
     //printf("Count is : %d\n", count);
@@ -396,16 +398,17 @@ int availableWindowSize(){
 }
 
 ServerBufferNode * getOldestInTransitNode(){
-    //printf("Oldest\n");
+    printf("Oldest\n");
     //printf("start: %d %d\n", start->occupied, start->seq);
+    ServerBufferNode *ptr;
     if(start->occupied == 0){
-        //printf("NULL\n");
-        return NULL;
+        ptr = NULL;
     }
     else{
         //printf("START\n");
-        return start;
+        ptr = start;
     }
+    return ptr;
 }
 //*****************************************************************************//
 
@@ -819,7 +822,8 @@ int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struc
 }*/
 int minimum(int cwin, int advWinSize){
     int availWinSize = availableWindowSize();
-
+    //printf("Minimum: cwin:%d, advWinSize:%d, myspace: %d\n", cwin, advWinSize, availWinSize);
+    //sleep(2);
     if(cwin <= advWinSize && cwin <= availWinSize){
         return cwin;
     }
@@ -831,6 +835,14 @@ int minimum(int cwin, int advWinSize){
     }
     else{
         return -1;
+    }
+}
+int minimum2(int cwin, int advWinSize){
+    if(cwin <= advWinSize){
+        return cwin;
+    }
+    else{
+        return advWinSize;
     }
 }
 int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize) {
@@ -872,7 +884,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
     received = 0; 
 
     if (rttinit == 0) {
-        rtt_init(&rttinfo);     /* first time we're called */
+        rtt_init(&rttinfo);     /// first time we're called 
         rttinit = 1;
         rtt_d_flag = 1;
     }   
@@ -882,204 +894,224 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
 
     int maxAckReceived = 2;
     ServerBufferNode* tmpSbn;
-    while(maxAckReceived < (numChunks+1)) {  
-      loop: 
-        numToSend = minimum(cwin, advWin);
-        //printf("minimum: %d\n", numToSend);
-        //printf("minimum: %d\n", numToSend);
-        sent = 0;
-        //Mask out sig alarm
+    int numToAddToBuffer;
+    int addedToBuffer;
+    int probingFlag = 0;
+    while(maxAckReceived < (numChunks+1)){
+      FillBuffer:  
+        numToAddToBuffer = minimum(cwin, advWin);
+        printf("Adding to Buffer: CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
+        addedToBuffer = 0;
         sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
-        while(sent< numToSend && i < numChunks){
-            //printf("i: %d, sent: %d\n", i, sent);
-            //printf("Before: %d\n", getSeqNumber());
-            int toSendSeq = getSeqNumber();
-            msg = malloc(sizeof(struct msghdr)); 
-            hdr = malloc(sizeof(struct dtghdr));
-            bzero(hdr, sizeof(struct dtghdr));
-            bzero(msg, sizeof(struct msghdr));
-            hdr->seq = htons(toSendSeq);//set the sequence number
-            hdr->flags = htons(SYN_FLAG);//set the flags field
-            if (i == numChunks -1) {
-                hdr->chl = htons(lastChunkRem);
+        if(numToAddToBuffer != 0){
+            while(addedToBuffer < numToAddToBuffer & i <numChunks){
+                int toSendSeq = getSeqNumber();
+                msg = malloc(sizeof(struct msghdr)); 
+                hdr = malloc(sizeof(struct dtghdr));
+                bzero(hdr, sizeof(struct dtghdr));
+                bzero(msg, sizeof(struct msghdr));
+                hdr->seq = htons(toSendSeq);//set the sequence number
+                hdr->flags = htons(SYN_FLAG);//set the flags field
+                if (i == numChunks -1) {
+                    hdr->chl = htons(lastChunkRem);
+                }
+                fillHdr2(hdr, msg, chunks[i], getDtgBufSize());
+                
+                ret =addNodeContents(toSendSeq, msg);
+                //res = sendmsg(fd, msg, sockOpts);
+                ++addedToBuffer;
+                ++i;    
             }
-            fillHdr2(hdr, msg, chunks[i], getDtgBufSize());
-            
-            ret =addNodeContents(toSendSeq, msg);
-            //res = sendmsg(fd, msg, sockOpts);
-            ++sent;
-            ++i;
         }
-        
-        //printBufferContents();
-     sendagain:
-        //mask sigalarm
-        //printBufferContents();
-        //printf("Start: %d, end: %d\n", start->seq, end->seq);
-        numToSend = minimum(cwin, advWin);
-        if(clientBuffFullFlag == 1){
-            numToSend = 1;
-            //clientBuffFullFlag= 1;
+        else{
+            //Maybe just go to read here
         }
-        printf("CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
-        //printf("send again minimum: %d\n", numToSend);   
+      SendPackets:
+        numToSend = minimum2(cwin, advWin);
+        if(numToSend > getWindowSize()){
+            numToSend = getWindowSize();
+        }
+        printf("Sending Packets: CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
+        if(ssFlag == 0){
+            printf("Slow Start Phase\n");
+        }
+        else{
+            printf("Congestion Avoidance phase\n");
+        }
         sent = 0;
-        ServerBufferNode * ptr = start;
-        int adjustedNumTorecv=0;
-        DtgHdr* hdr2 = getDtgHdrFromMsg(ptr->dataPayload);
-        hdr2->ts  = htons(rtt_ts(&rttinfo));
+        ServerBufferNode *ptr = start;
+        int adjustedNumToRecv=0;
+        //DtgHdr* hdr2 = getDtgHdrFromMsg(ptr->dataPayload);
+        //hdr2->ts  = htons(rtt_ts(&rttinfo));
         printf("Number of packets sending:%d\n", numToSend);
         while(sent < numToSend){
             if(ptr->occupied == 1){
-                rtt_newpack(&rttinfo);
-                //printf("Sending sequence number: %d\n", ptr->seq);
+                //rtt_newpack(&rttinfo);
                 sendmsg(fd, ptr->dataPayload, sockOpts);
-                
-                adjustedNumTorecv++;
+                ++adjustedNumToRecv;
+                printf("Sent packet with sequence number: %d\n", ptr->seq);
             }
-            ptr=ptr->right;
+            ptr = ptr->right;
             sent++;
-        }        
+        }
         sigprocmask(SIG_UNBLOCK, &sigset_alrm, NULL);
         if(sigsetjmp(jmpbuf,1) != 0){
-            tmpSbn = getOldestInTransitNode();
-            //printf("RetrNum=%d for seq=%d", tmpSbn->retransNumber, tmpSbn->seq);
             printf("Sigalarm Went off\n");
-            printf("SIGALARM: CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
-            if (rtt_timeout(&rttinfo, tmpSbn) < 0) {
-                printf("\t\tToo many retransmissions, file transfer will be terminated\n");
-                rttinit = 0;
-                return 0;
+            printf("SigAlarm: CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
+            if(probingFlag == 1){
+                printf("probingFlag == True\n");
+                alarm(2);
+                goto SendPackets;
             }
-            //rtt_debug2(&rttinfo, "\t\tAbout to repeat");
-            if(clientBuffFullFlag == 0){
-                printf("In clientBuffFullFlag == 0\n");
-                if(cwin/2 >0){
-                    ssthresh = cwin/2;
+            else{
+                printf("Actual time out\n");
+                if(cwin / 2 > 0){
+                    ssthresh = cwin / 2;
                 }
                 else{
                     ssthresh = 1;
                 }
                 cwin = 1;
-                cWinPercent = 0;
                 ssFlag = 0;
+                cWinPercent = 0;
+                alarm(2);
+                goto SendPackets;
             }
-            else{
-                printf("Alarm is for probing purposes. Disgreard. Sending probe messages...\n");
-            }
-            goto sendagain;
+
         }
 
-        //received = 0;
-        int testing = 0;
-        while(testing < adjustedNumTorecv){
-            //printf("In recv While loop\n");
-
-            float rto = (rtt_start(&rttinfo) - delta)/ 1000.0; // 0.9999
-            if(rto< 1.0){
-                rto =1;
-            }
-            //int rtoi = (int)(rto+0.5);            
-            alarm(rto);  
-
-            ServerBufferNode* sbn2 = getOldestInTransitNode();
-            //printf("Alarm with RTO=%f, delta=%d ms \n", rto, delta);
-            //rtt_debug2(&rttinfo, "alarm");
-            //printf("In recv While loop\n");
-            MsgHdr rmsg;
-            DtgHdr rhdr;
-            bzero(&rhdr, sizeof(rhdr));  
-            bzero(&rmsg, sizeof(rmsg));     
-            fillHdr2(&rhdr, &rmsg, NULL, 0);
-            printf("Gonna receive...\n");
-            res = recvmsg(fd, &rmsg, 0);
-            printf("Received msg\n");
-            alarm(0);
-            
-            if (res == -1) 
-                return;
-            sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
-            int ack = ntohs(rhdr.ack);
-            maxAckReceived = ack;
-            fastRetransmitFlag=updateAckField(ack);
-            
-            struct timeval tv;
-            if(gettimeofday(&tv, NULL) != 0){
-                printf("Error getting time to set to packet.\n");
-                return -1;
-            }
-            int now = ((tv.tv_sec * 1000) + tv.tv_usec / 1000); //this will get the timestamp in msec            
-
-            ServerBufferNode* oldestItmNode = getOldestInTransitNode();            
-            int b = oldestItmNode->ts;
-            int roundTripTime = now - b;            
-            int toAdd = removeNodesContents(ack); //remove retirieved ACK from circ.
-            oldestItmNode = getOldestInTransitNode();            
-            int c = 0;
-            if (oldestItmNode != NULL) {                
-                //c = getDtgHdrFromMsg(oldestItmNode->dataPayload)->ts;                
-                c = oldestItmNode->ts;
-                 // delta is needed here to simulate the time as if it is Reply-Answer, Reply-Answer scenario            
-                if (wasResending == 0) {
-                    //printf("\tExtracted from ACK=%d TS=%d",ntohs(h->ack), ntohs(h->ts));
-                    delta = now - c;
-                }
-            }
-            //printf("RTT: %d, DELTA: %d, b:%d, c:%d\n", roundTripTime, delta, b, c);
-            rtt_stop(&rttinfo, roundTripTime);
-            
-            //printf("\tRTT stop for ACK=%d\n", ntohs(rhdr.ack));
-            //rtt_debug2(&rttinfo, "\trtt_stop");            
-            wasResending = 0;   
-
-            advWin = ntohs(rhdr.advWnd);
-            
-            printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
-            testing = testing + toAdd;
-            //printf("received: %d\n", received);
-            //printf("received: %d\n", received);
-            //testing++;
-            if(fastRetransmitFlag == 1 && toAdd == 0){
-                printf("FAST RETRANSMIT flag went off!\n");    
-                //Cancel timeout
-                //Resend oldest in transit. wait for packet to be read.
-                //proceed
-            }
-            if(advWin == 0){
-                clientBuffFullFlag = 1;
-                advWin = 0;
-                printf("CLIENTS BUFFER IS FULL\n");
+        
+        if(availableWindowSize() == 0){
+            int recvCount = 0;
+            while(recvCount < getWindowSize()){   
+                alarm(2);
+                MsgHdr rmsg;
+                DtgHdr rhdr;
+                bzero(&rhdr, sizeof(rhdr));  
+                bzero(&rmsg, sizeof(rmsg));     
+                fillHdr2(&rhdr, &rmsg, NULL, 0);
+                printf("Gonna receive IF...\n");
+                res = recvmsg(fd, &rmsg, 0);
+                printf("Received msg\n");
                 alarm(0);
-                printf("clientBuff var: %d\n",clientBuffFullFlag );
+                int ack = ntohs(rhdr.ack);
+                maxAckReceived = ack;
+                printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+                sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
+                int rValRemove = removeNodesContents(ack);
+                recvCount += rValRemove;
+                advWin = ntohs(rhdr.advWnd);
+                if(rValRemove != 0){
+                    if(ssFlag == 0){
+                        ++cwin;
+                        if(cwin>= ssthresh){
+                            ssFlag = 1;
+                            cWinPercent =0;
+                        }
+                    }
+                    else{
+                        ++cWinPercent;
+                        if(cWinPercent % cwin == 0){
+                            ++cwin;
+                            cWinPercent = 0;
+                        }
+                    }
+                }
+                sigprocmask(SIG_UNBLOCK, &sigset_alrm, NULL);
             }
-            else{
-                clientBuffFullFlag = 0;
-                printf("clientBuff var: %d\n",clientBuffFullFlag );
-            }
-            if(ssFlag == 0){
-                ++cwin;
-                if(cwin>=ssthresh){
-                    ssFlag = 1;
-                    cWinPercent = 0;
-                }                
-            }
-            else{
-                ++cWinPercent;
-                if(cWinPercent%cwin == 0){
-                    //printf("INCREMENTING ssthresh\n");
-                    ++ssthresh;
-                    cwin = 1;
-                    cWinPercent = 0;
+        }
+        else{
+            printf("In else part of code. My buffer is not full\n");
+            
+            if(advWin == 0 && adjustedNumToRecv == 0){
+                printf("advwin is 0 but we will listen for one ack\n");
+                adjustedNumToRecv =1;//we need to listen for one ack 
+                while(1){
+                    probingFlag = 1;
+                    //alarm(2);
+                    MsgHdr rmsg;
+                    DtgHdr rhdr;
+                    bzero(&rhdr, sizeof(rhdr));  
+                    bzero(&rmsg, sizeof(rmsg));     
+                    fillHdr2(&rhdr, &rmsg, NULL, 0);
+                    printf("Gonna receive ADV WIN == 0...\n");
+                    res = recvmsg(fd, &rmsg, 0);
+                    printf("Received msg\n");
+                    alarm(0);
+                    int ack = ntohs(rhdr.ack);
+                    maxAckReceived = ack;
+                    printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+                    sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
+                    int rValRemove = removeNodesContents(ack);
+                    //amountReceived += rValRemove;
+                    advWin = ntohs(rhdr.advWnd);
+                    if(rValRemove != 0){
+                        if(ssFlag == 0){
+                            ++cwin;
+                            if(cwin>= ssthresh){
+                                ssFlag = 1;
+                                cWinPercent =0;
+                            }
+                        }
+                        else{
+                            ++cWinPercent;
+                            if(cWinPercent % cwin == 0){
+                                ++cwin;
+                                cWinPercent = 0;
+                            }
+                        }
+                    }
+                    sigprocmask(SIG_UNBLOCK, &sigset_alrm, NULL);
+                    if(advWin > 0){
+                        probingFlag = 0;
+                        break;
+                    }
                 }
             }
-            alarm(0); //reset the alarm to zero
-            sigprocmask(SIG_UNBLOCK, &sigset_alrm, NULL);
+            else{
+                int amountReceived =0;
+                while(amountReceived < adjustedNumToRecv){
+                    alarm(2);
+                    MsgHdr rmsg;
+                    DtgHdr rhdr;
+                    bzero(&rhdr, sizeof(rhdr));  
+                    bzero(&rmsg, sizeof(rmsg));     
+                    fillHdr2(&rhdr, &rmsg, NULL, 0);
+                    printf("Gonna receive ELSE...\n");
+                    res = recvmsg(fd, &rmsg, 0);
+                    printf("Received msg\n");
+                    alarm(0);
+                    int ack = ntohs(rhdr.ack);
+                    maxAckReceived = ack;
+                    printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+                    sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
+                    int rValRemove = removeNodesContents(ack);
+                    amountReceived += rValRemove;
+                    advWin = ntohs(rhdr.advWnd);
+                    if(rValRemove != 0){
+                        if(ssFlag == 0){
+                            ++cwin;
+                            if(cwin>= ssthresh){
+                                ssFlag = 1;
+                                cWinPercent =0;
+                            }
+                        }
+                        else{
+                            ++cWinPercent;
+                            if(cWinPercent % cwin == 0){
+                                ++cwin;
+                                cWinPercent = 0;
+                            }
+                        }
+                    }
+                    sigprocmask(SIG_UNBLOCK, &sigset_alrm, NULL);
+                }
+            }
         }
     }
-    printf("File transfer complete\n");
+    printf("Finished File Transfer\n");
     return 1;
 }
-
 
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
     DtgHdr hdr;
