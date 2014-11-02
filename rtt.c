@@ -9,7 +9,7 @@ int		rtt_d_flag = 0;		/* debug flag; can be set by caller */
  */
 #define	RTT_RTOCALC(ptr) ((ptr)->rtt_srtt + (4 * (ptr)->rtt_rttvar))
 
-static uint32_t rtt_minmax(uint32_t rto)
+static int rtt_minmax(int rto)
 {
 	if (rto < RTT_RXTMIN)
 		rto = RTT_RXTMIN;
@@ -40,9 +40,9 @@ void rtt_init(struct rtt_info *ptr)
  */
 
 /* include rtt_ts */
-uint32_t rtt_ts(struct rtt_info *ptr)
+int rtt_ts(struct rtt_info *ptr)
 {
-	uint32_t		ts;
+	int		ts;
 	struct timeval	tv;
 
 	Gettimeofday(&tv, NULL);
@@ -73,11 +73,12 @@ int rtt_start(struct rtt_info *ptr)
  */
 
 /* include rtt_stop */
-void rtt_stop(struct rtt_info *ptr, uint32_t ms)
+void rtt_stop(struct rtt_info *ptr, int ms)
 {
-	uint32_t delta;
+	int delta;
 
 	ptr->rtt_rtt = ms;		/* measured RTT in milliseconds */
+	printf("rtt=%u\n",ptr->rtt_rtt);
 
 	/*
 	 * Update our estimators of RTT and mean deviation of RTT.
@@ -86,18 +87,20 @@ void rtt_stop(struct rtt_info *ptr, uint32_t ms)
 	 */
 
 	delta = ptr->rtt_rtt - ptr->rtt_srtt;
-	ptr->rtt_srtt += delta / 8;		/* g = 1/8 */
-
+	ptr->rtt_srtt = ptr->rtt_srtt + delta / 8;		/* g = 1/8 */
+//printf("srtt=%d\n",ptr->rtt_srtt);
 	if (delta < 0.0)
 		delta = -delta;				/* |delta| */
-
-	ptr->rtt_rttvar += (delta - ptr->rtt_rttvar) / 4;	/* h = 1/4 */
-
-	ptr->rtt_rto = rtt_minmax(RTT_RTOCALC(ptr));
-
-	uint32_t newRto = (ptr)->rtt_rttvar << 2;
-	newRto = newRto + (ptr)->rtt_srtt;
-	printf("RTT_STOP. RTO:%u, RTTVAR:%u\n", ptr->rtt_rto, newRto);
+//printf("delta=%d\n", delta);
+//printf("rttvar=%d\n",ptr->rtt_rttvar);
+	int diff = delta - ptr->rtt_rttvar;
+	ptr->rtt_rttvar = ptr->rtt_rttvar + diff/4;	/* h = 1/4 */
+	//ptr->rtt_rttvar += (delta - ptr->rtt_rttvar) / 4;	/* h = 1/4 */
+//printf("rttvar=%d\n",ptr->rtt_rttvar);
+	int x = RTT_RTOCALC(ptr);
+	
+	ptr->rtt_rto = rtt_minmax(x);
+//	printf("RTT stop, calc rto=%d, limto=%d\n", x, ptr->rtt_rto);
 }
 /* end rtt_stop */
 
@@ -107,11 +110,11 @@ void rtt_stop(struct rtt_info *ptr, uint32_t ms)
  */
 
 /* include rtt_timeout */
-int rtt_timeout(struct rtt_info *ptr)
+int rtt_timeout(struct rtt_info *ptr, ServerBufferNode* sbn)
 {
-	ptr->rtt_rto *= 2;		/* next RTO */
+	ptr->rtt_rto = ptr->rtt_rto*2;		/* next RTO */
 	ptr->rtt_rto = rtt_minmax(ptr->rtt_rto);
-	if (++ptr->rtt_nrexmt > RTT_MAXNREXMT)
+	if (++sbn->retransNumber > RTT_MAXNREXMT)
 		return(-1);			/* time to give up for this packet */
 	return(0);
 }
@@ -128,7 +131,7 @@ void rtt_debug(struct rtt_info *ptr)
 
 	/*fprintf(stderr, "rtt = %.3f, srtt = %.3f, rttvar = %.3f, rto = %.3f\n",
 			ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto); */
-	fprintf(stderr, "rtt = %d, srtt = %d, rttvar = %d, rto = %d\n",
+	fprintf(stderr, "rtt = %u, srtt = %u, rttvar = %u, rto = %u\n",
 			ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto);
 	fflush(stderr);
 }
@@ -140,7 +143,7 @@ void rtt_debug2(struct rtt_info *ptr, char* s)
 
 	/*fprintf(stderr, "rtt = %.3f, srtt = %.3f, rttvar = %.3f, rto = %.3f\n",
 			ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto); */
-	fprintf(stderr, "%s rtt = %d, srtt = %d, rttvar = %d, rto = %d\n",
+	fprintf(stderr, "%s rtt = %u, srtt = %u, rttvar = %u, rto = %u\n",
 			s, ptr->rtt_rtt, ptr->rtt_srtt, ptr->rtt_rttvar, ptr->rtt_rto);
 	fflush(stderr);
 }
