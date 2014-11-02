@@ -5,7 +5,6 @@
 #include "ifs.h"
 #include "unp.h"
 #include "dtghdr.h"
-#include "utils.h"
 #include "clientCircularBuffer.h"
 #include "client.h"
 #include <math.h>
@@ -22,6 +21,7 @@ uint32_t currentAck = 2;// = 0; //Never touch this variable. To access call getA
 
 int Finish = 0;
 
+void rmnl(char* s);
 void printBufferContents();
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN, float dropRate);
 int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost, float dropRate);
@@ -596,4 +596,10 @@ void printBufferContents(){
 	count++;
 	}while(ptr!= cHead);
 	printf("\n**********************************\n");
+}
+
+void rmnl(char* s) {
+	int ln = strlen(s) - 1;
+	if (s[ln] == '\n')
+	    s[ln] = '\0';
 }

@@ -16,7 +16,7 @@ static int  rttinit = 0;
 int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
 int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
 int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
-int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize);
+int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize);
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq);
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
@@ -645,7 +645,7 @@ int main (int argc, char ** argv){
                                     //sending 2nd handshake                                    
                                     MsgHdr smsg;
                                     bzero(&smsg, sizeof(smsg));
-                                    if ((res = sendNewPortNumber(sockets_info[i].sockfd, &smsg, ntohs(rHdr.seq), transSock.sin_port, (SA*)&cliaddr, sizeof(cliaddr))) == 0) {
+                                    if ((res = sendNewPortNumber(sockets_info[i].sockfd, &smsg, ntohs(rHdr.seq), transSock.sin_port, (struct sockaddr_in*)&cliaddr, sizeof(cliaddr))) == 0) {
                                         printf("Error when sending new port number\n");
                                         return;
                                     }
@@ -829,7 +829,7 @@ int minimum(int cwin, int advWinSize){
         return -1;
     }
 }
-int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize) {
+int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize) {
     //Malloc the sliding window size of the circular buffer
     printf("\n\n ***** Starting File Transfer *****\n\n");
     

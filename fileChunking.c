@@ -15,11 +15,11 @@ int chunkFileOpts(char * fileName, char **buffer, int numChunks, int chunkSize, 
 	
 	if (lastChunkRem == 0) {
 		buffer[i] = malloc(chunkSize);
-		fread(buffer[i], chunkSize , 1, ftpFile);
+		ret = fread(buffer[i], chunkSize , 1, ftpFile);
 	}
 	else {
 		buffer[i] = malloc(lastChunkRem);			
-		fread(buffer[i], lastChunkRem , 1, ftpFile);
+		ret = fread(buffer[i], lastChunkRem , 1, ftpFile);
 	}	
 	
 	if (fclose(ftpFile)!=0) {
@@ -52,7 +52,7 @@ int sizetoAllocate(char* fn, int * dataSize, int * numberOfSegments, int * rem) 
 	return 0;
 }
 
-char** chunkFile(const char* fileName, int* numChunks, int* lastChunkRem) {
+char** chunkFile(char* fileName, int* numChunks, int* lastChunkRem) {
 	int chunkSize;
 	sizetoAllocate(fileName, &chunkSize, numChunks, lastChunkRem);
 	
