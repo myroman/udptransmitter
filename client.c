@@ -18,7 +18,7 @@ ClientBufferNode * cTail = NULL;	//cTail is used to setup the circular buffer
 ClientBufferNode * start = NULL;	//start is used to symbolize where the consumer can start reading from. Only modified by consumer
 ClientBufferNode * end = NULL;		//end is used to symbolize the last inorder segment received up until this point
 
-uint32_t currentAck;// = 0; //Never touch this variable. To access call getAckToSend() function.
+uint32_t currentAck = 2;// = 0; //Never touch this variable. To access call getAckToSend() function.
 
 int Finish = 0;
 
@@ -28,7 +28,7 @@ int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost);
 int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean, float dropRate);
 void* consumeChunkRoutine (void *arg);
 void* fillSlidingWndRoutine(void * arg);
-int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate);
+int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate, int recvTs);
 
 pthread_mutex_t mtLock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -179,6 +179,7 @@ void* consumeChunkRoutine(void *arg) {
 		pthread_mutex_unlock(&mtLock);
 
 		if (Finish == 1 && numConsumed == 0){//targs->fin ==1 && numConsumed == 0) {
+	
 			printf("C:found out EOF, so I save the file\n");
 			//pthread_mutex_unlock(&mtLock);
 			break;			
@@ -210,7 +211,7 @@ void* fillSlidingWndRoutine(void * arg) {
 	pthread_mutex_lock(&mtLock);
 	int sockfd = targs->sockfd, sockOptions = targs->sockOptions;
 	pthread_mutex_unlock(&mtLock);
-	
+	int maxRecievedSeq = 1;
 	int bufSize = getDtgBufSize();
 	//char* chunkBuf = malloc(bufSize);
 	int i, n;
@@ -249,19 +250,34 @@ void* fillSlidingWndRoutine(void * arg) {
 		if(toDropMsg(targs->dropRate) == 1){
 			printf("Message dropped.\n");
 			continue;
-		}		
+		}	
+		printf("P: I received\n");
 		if (sentFlags != FIN_FLAG) {		
 			pthread_mutex_lock(&mtLock);
 			//char* s = extractBuffFromHdr(*rmsg);
-			printf("P: gonna add to buffer seq=%d\n", ntohs(hdr->seq));
+			printf("P: gonna add to buffer seq=%d, expecting seq=%d\n", ntohs(hdr->seq), getAckToSend());
 			//printf("P:buf %s", s);
-
-			int n = addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
+			if(availableWindowSize() == 0){
+				printf("NO SPACE LEFT IN BUFFER. DISGARDING MESSAGE\n");
+				//pthread_mutex_unlock(&mtLock);
+				//continue;
+			}
+			else if(ntohs(hdr->seq) < maxRecievedSeq){
+				printf("DUPLICATE MESSAGE! ALREADY PROCESSED AND ADDED TO BUFFER\n");
+				addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
+				//printBufferContents();
+			}
+			else{
+				
+				maxRecievedSeq = ntohs(hdr->seq);
+				int n = addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
+			}
+			
 			//printBufferContents();
 			//printf("P: added, n = %d\n", n);									
 			
-			pthread_mutex_unlock(&mtLock);
-			respondAckOrDrop(sockfd, sockOptions, 0, targs->dropRate);
+			pthread_mutex_unlock(&mtLock);			
+			respondAckOrDrop(sockfd, sockOptions, 0, targs->dropRate, hdr->ts);
 		}
 		else {
 			printf("P:Got a FIN\n");
@@ -271,7 +287,7 @@ void* fillSlidingWndRoutine(void * arg) {
 			//sendFinToConsumer(targs);
 
 			// Send a final ACK which should terminate the connection
-			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG, targs->dropRate);
+			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG, targs->dropRate, hdr->ts);
 			pthread_mutex_unlock(&mtLock);
 			printf("wanna exit\n");
 			break;
@@ -282,14 +298,14 @@ void* fillSlidingWndRoutine(void * arg) {
 }
 
 // Used to send ACKs to server or FIN+ACK
-int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate) {
+int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate, int recvTs) {
 	DtgHdr hdr;
 	bzero(&hdr, sizeof(hdr));
-	printf("PRINT ACK:%d\n", getAckToSend());
 	hdr.ack = htons(getAckToSend());
 	hdr.flags = htons(ACK_FLAG | addFlags);
 	printf("Adv window size: %d\n", availableWindowSize());
 	hdr.advWnd = htons(availableWindowSize());
+	hdr.ts = recvTs; //network
 	printf("P: respond with ACK:%d, flags: %d\n", ntohs(hdr.ack), ntohs(hdr.flags));
 	
 	MsgHdr msg;
@@ -301,7 +317,7 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRat
 		printf("ACK dropped.\n");
 		return 2;
 	}
-
+	printf("P:Gonna send msg\n");
 	fillHdr2(&hdr, &msg, NULL, 0);
 	if (sendmsg(sockfd, &msg, sockOptions) == -1) {
 		printf("P:Error on send ack\n");
@@ -481,11 +497,17 @@ int addDataPayload(uint32_t s, char * c,MsgHdr* dp) {
 		return -1;
 	}
 	//printf("AddDataPayload: %s\n\n", c);
-	if(start->occupied == 0){
+	printf("P:expecting segment:%d, s=%u, start->occupied=%d\n", getAckToSend(), s, start->occupied);
+	//printBufferContents();
+
+	if(start->occupied == 0 && s == getAckToSend()){
 		start->occupied = 1;
 		start->seqNum = s;
 		start->dataPayload = dp;
 		start->cptr =c;
+	}
+	else if(start->occupied ==0 && s != getAckToSend()){
+		printf("P: NOT EXPECTING THIS PACKET.\n");
 	}
 	else{
 		int difference, i;
@@ -504,6 +526,7 @@ int addDataPayload(uint32_t s, char * c,MsgHdr* dp) {
 		ptr->cptr =c;
 
 	}
+	//printBufferContents();
 	updateInorderEnd();//this will update the pointer to the end
 	return 1;//successfully added data
 }
