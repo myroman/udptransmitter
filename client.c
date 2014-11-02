@@ -11,6 +11,7 @@
 
 const int MAX_SECS_REPLY_WAIT = 5;
 const int MAX_TIMES_TO_SEND_FILENAME = 3;
+const int MAX_TIMES_TO_GET_CHUNK = 3;
 	
 ClientBufferNode * cHead = NULL; 	//cHead is used to setup the circular buffer
 ClientBufferNode * cTail = NULL;	//cTail is used to setup the circular buffer
@@ -24,7 +25,7 @@ int Finish = 0;
 void rmnl(char* s);
 void printBufferContents();
 int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN, float dropRate);
-int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost, float dropRate);
+int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost, float dropRate, int advWndSize);
 int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean, float dropRate);
 void* consumeChunkRoutine (void *arg);
 void* fillSlidingWndRoutine(void * arg);
@@ -32,13 +33,15 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRat
 int toDropMsg(float dropRate);
 pthread_mutex_t mtLock = PTHREAD_MUTEX_INITIALIZER;
 
+void printHeading(char*s) {
+	printf("***** %s *****\n", s);
+}
 int main()
 {
 	InpCd* inputData = (InpCd*)malloc(sizeof(struct inputClientData));	
 	if (parseInput(inputData) != 0) {
 		return 1;
 	}
-	printf("DropRate: %f\n",inputData->dtLossProb);
 	//set the random seed for drand
 	srand48(inputData->rndSeed);
 
@@ -50,16 +53,23 @@ int main()
 		clientIp = "127.0.0.1";
 		inputData->ipAddrSrv = "127.0.0.1";
 	}
-	printf("Client IP:%s\n", clientIp);
-	printf("Server Ip:%s\n", inputData->ipAddrSrv);;
-	printf("Check the server is local: %d\n", isServerLocal);
+
+	printf("Client IP:%s, server IP:%s \n", clientIp, inputData->ipAddrSrv);
+	if (isServerLocal == 0)
+		printf("Client and server belong to different networks\n");
+	else if (isServerLocal == 1)
+		printf("Client and server belong to the same subnet. Use MSG_DONTROUTE\n");
+	else if (isServerLocal == 2) 
+		printf("Client and server are run on the same host. Use MSG_DONTROUTE\n");
 	
 	int sockfd = Socket(AF_INET, SOCK_DGRAM, 0);
 	int sockOptions = 0;
 	if (isServerLocal) {
 		sockOptions = MSG_DONTROUTE;
 	}
-	
+
+	printHeading("Establishing the connection");
+
 	//Bind ephemeral port to client IP
 	struct sockaddr_in cliaddr;
 	bzero(&cliaddr, sizeof(cliaddr));
@@ -69,7 +79,7 @@ int main()
 	inet_aton(clientIp, &ciaddr);
 	cliaddr.sin_addr = ciaddr;
 	if (bind(sockfd, (SA *)&cliaddr, sizeof(cliaddr)) == -1) {
-		printf("Error when binding\n");
+		printf("Error when binding client address\n");
 		exit(1);
 	}
 	// Getting the assigned IP address and port of the client
@@ -85,21 +95,20 @@ int main()
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(inputData->srvPort);
 	Inet_pton(AF_INET, inputData->ipAddrSrv, &servaddr.sin_addr);	
-	printf("The server address and port: %s:%d\n", inet_ntoa(servaddr.sin_addr), ntohs(servaddr.sin_port));
+	printf("The server-parent address and port: %s:%d\n", inet_ntoa(servaddr.sin_addr), ntohs(servaddr.sin_port));
 	
 	if (connect(sockfd, (SA *) &servaddr, sizeof(servaddr)) < 0) {
-		printf("Error when connecting\n");
+		printf("Error when connecting to the server using fd=%d\n", sockfd);
 		exit(1);
 	}
 	// Getting the server IP address and port
 	socklen_t srvsz = sizeof(struct sockaddr_in);
 	if (getpeername(sockfd, (SA *)&servaddr, &srvsz) == -1) {
-		printf("Error on getpeername\n");
+		printf("Error on getpeername for server address\n");
 		exit(1);
 	}
 
 	int newSrvPort, srvSeqHost;
-	// 1st and 2nd handshakes
 	int res = sendFileNameAndGetNewServerPort(sockfd, sockOptions, inputData, &newSrvPort, &srvSeqHost, inputData->dtLossProb);
 	if (res == 0) {
 		exit(1);
@@ -111,62 +120,44 @@ int main()
 		printf("Error when reconnecting to new server port\n");
 		exit(1);
 	}
-	printf("%s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
-
-	DtgHdr sendHdr;
-	bzero(&sendHdr, sizeof(sendHdr));
-	//sendHdr.ack = srvReplySeq + 1;	
-	printf("I got ack %d\n", sendHdr.ack);
-	sendHdr.ack = htons(sendHdr.ack);
-	sendHdr.flags = htons(ACK_FLAG);
-	sendHdr.advWnd = htons(inputData->slidWndSize);
-	MsgHdr smsg;
-	bzero(&smsg, sizeof(smsg));
-	printf("Reconnected to new server address %s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
-	//TODO simulate dropping for third Handshake
-	if (sendThirdHandshake(sockfd, sockOptions, srvSeqHost, inputData->dtLossProb) == 0) {
+	
+	printf("Reconnected to a new server address %s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
+	
+	if (sendThirdHandshake(sockfd, sockOptions, srvSeqHost, inputData->dtLossProb, inputData->slidWndSize) == 0) {
 		return 1;
 	}
+
+	printHeading("Downloading the file");
 	downloadFile(sockfd, inputData->fileName, inputData->slidWndSize, sockOptions, inputData->rndSeed, inputData->mean, inputData->dtLossProb);
 
 	return 0;
 }
 
-int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost, float dropRate) {
+int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost, float dropRate, int advWndSize) {
 	DtgHdr hdr;
 	bzero(&hdr, sizeof(hdr));
 	hdr.ack = htons(lastSeqHost + 1);	
 	hdr.flags = htons(ACK_FLAG);
-	printf("Gonna send 3rd hs, ACK:%d,flags:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
+	printf("3rd handshake: Send advertising window of the client:%d, ACK:%d\n", advWndSize, ntohs(hdr.ack));
 	
 	MsgHdr msg;
 	bzero(&msg, sizeof(msg));
-	if( toDropMsg(dropRate) ==1){
-		printf("3rd Handshake dropped.\n");
+	if(toDropMsg(dropRate) ==1){
+		printf("3rd handshake is dropped, quit\n");
 		return 1;
 	}
-
 	
 	fillHdr2(&hdr, &msg, NULL, 0);	
 	if (sendmsg(sockfd, &msg, sockOptions) == -1) {
 		printf("Error on sending 3rd handshake\n");
 		return 0;
 	}
-	printf("I've sent 3rd handshake\n");
+	printf("3rd handshake has been just sent, waiting for the file chunks...\n");
 	return 1;
 }
 
 void* consumeChunkRoutine(void *arg) {	
 	ThreadArgs* targs = (ThreadArgs*)arg;
-	printf("seed: %d, mean: %d\n", targs->seed, targs->mean);
-	pthread_mutex_lock(&mtLock);
-	char* tmpFn = targs->fileName;
-	pthread_mutex_unlock(&mtLock);
-	char* fileName = malloc(strlen(tmpFn) + 4);
-	strcpy(fileName, "cli_");
-	strcat(fileName, tmpFn);
-	FILE* dlFile = fopen(fileName, "w+");
-	//int mean = 1234;
 	for(;;) {
 		double drandVal = (double) drand48();
 		drandVal = log(drandVal);
@@ -176,61 +167,63 @@ void* consumeChunkRoutine(void *arg) {
 
 		pthread_mutex_lock(&mtLock);
 
-		int numConsumed = consumeBuffer(dlFile);
-		printf("C:consumed %d datagrams\n", numConsumed);
+		int numConsumed = consumeBuffer();
 
 		pthread_mutex_unlock(&mtLock);
 
-		if (Finish == 1 && numConsumed == 0){//targs->fin ==1 && numConsumed == 0) {
-	
-			printf("C:found out EOF, so I save the file\n");
-			//pthread_mutex_unlock(&mtLock);
+		if (Finish == 1 && numConsumed == 0){
+			printf("Consumer: producer wants me to exit and I consumed 0 chunks, so I'm quitting\n");
 			break;			
-		}
-		
+		}		
 	}
-	fclose(dlFile);
-	free(fileName);
 	return NULL;
 }
 
-void sendFinToConsumer(ThreadArgs* targs){
-	pthread_mutex_lock(&mtLock);
-	targs->fin = 1;
-	pthread_mutex_unlock(&mtLock);
-}
 int toDropMsg(float dropRate){
 	float drandVal = (float) drand48();
-	printf("toDropMsg:: dropRate: %f, randValue%f \n", dropRate,drandVal);
 	if(drandVal <= dropRate ){
+		//printf("Drop rate %f > random value %f - leave it\n", dropRate,drandVal);
 		return 1;//dropAck
 	}	
 	else{
+		//printf("Drop rate %f < random value %f - drop it!\n", dropRate,drandVal);
 		return 0;//Ack back
 	}
 }
 void* fillSlidingWndRoutine(void * arg) {
 	ThreadArgs* targs = (ThreadArgs*)arg;	
-	pthread_mutex_lock(&mtLock);
-	int sockfd = targs->sockfd, sockOptions = targs->sockOptions;
-	pthread_mutex_unlock(&mtLock);
-	int maxRecievedSeq = 1;
-	int bufSize = getDtgBufSize();
-	//char* chunkBuf = malloc(bufSize);
-	int i, n;
 	
+	pthread_mutex_lock(&mtLock);
+	int sockfd = targs->sockfd, 
+		sockOptions = targs->sockOptions;
+	pthread_mutex_unlock(&mtLock);
+	
+	int bufSize = getDtgBufSize(), i, n, maxRecievedSeq = 1;
+	const int waitTimeoutSeconds = 5;
 	for(;;) {
-		for(i = 0;i < MAX_TIMES_TO_SEND_FILENAME; ++i) {
-			printf("P: wait for read from socket:%d\n", sockfd);			
-			if ((n=readable_timeo(sockfd, 5)) <= 0) {
+		for(i = 0;i < MAX_TIMES_TO_GET_CHUNK; ++i) {
+			if ((n=readable_timeo(sockfd, waitTimeoutSeconds)) <= 0) {
+				printf("Producer: No answer within timeout %d s\n", waitTimeoutSeconds);
 				continue;
-			}
+			}			
 			break;
 		}
-		if (i == MAX_TIMES_TO_SEND_FILENAME) {
-			sendFinToConsumer(targs);
+		if (i == MAX_TIMES_TO_GET_CHUNK) {
+			printf("Producer: exceeded maximum number times to get a chunk %d\n", MAX_TIMES_TO_GET_CHUNK);
+
+			pthread_mutex_lock(&mtLock);
+			Finish = 1;
+			pthread_mutex_unlock(&mtLock);
 			break;
 		}
+
+		if(toDropMsg(targs->dropRate) == 1){
+			printf("Producer: chunk was lost on its way to client.\n");
+			continue;
+		}
+
+		printf("Producer: A new chunk has come! Reading it... \n");
+
 		char* chunkBuf = malloc(bufSize);
 		MsgHdr* rmsg = malloc(sizeof(struct msghdr));
 		bzero(rmsg, sizeof(struct msghdr));
@@ -239,37 +232,32 @@ void* fillSlidingWndRoutine(void * arg) {
 		
 		fillHdr2(hdr, rmsg, chunkBuf, bufSize);
 		if ((n = recvmsg(sockfd, rmsg, 0)) == -1) {
-			printf("Error: %s\n", strerror(errno));
-			printf("P: Error on recvmsg from socket %d\n", sockfd);
-			
-			sendFinToConsumer(targs);
+			printf("Producer: Error when reading the message: %s. Quitting.\n", strerror(errno));
+			pthread_mutex_lock(&mtLock);
+			Finish = 1;
+			pthread_mutex_unlock(&mtLock);
 			break;
 		}
 		
 		int sentFlags = ntohs(hdr->flags);		
-		printf("P: received seq:%d, flags: %d\n", ntohs(hdr->seq), sentFlags);
-		if(toDropMsg(targs->dropRate) == 1){
-			printf("Message dropped.\n");
-			continue;
-		}	
-		printf("P: I received\n");
+		
 		if (sentFlags != FIN_FLAG) {		
 			pthread_mutex_lock(&mtLock);
 			//char* s = extractBuffFromHdr(*rmsg);
-			printf("P: gonna add to buffer seq=%d, expecting seq=%d\n", ntohs(hdr->seq), getAckToSend());
+			//printf("P: gonna add to buffer seq=%d, expecting seq=%d\n", ntohs(hdr->seq), getAckToSend());
 			//printf("P:buf %s", s);
 			if(availableWindowSize() == 0){
-				printf("NO SPACE LEFT IN BUFFER. DISGARDING MESSAGE\n");
+				printf("Producer: No space left in the buffer. Discarding the message SEQ=%d\n", ntohs(hdr->seq));
 				//pthread_mutex_unlock(&mtLock);
 				//continue;
 			}
 			else if(ntohs(hdr->seq) < maxRecievedSeq){
-				printf("DUPLICATE MESSAGE! ALREADY PROCESSED AND ADDED TO BUFFER\n");
+				printf("Producer: Duplicate message SEQ=%d! Already processed and added to the buffer\n", ntohs(hdr->seq));
 				addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
-				//printBufferContents();
 			}
 			else{
-				
+				printf("Producer: I've read the chunk: SEQ:%d, going to add it to the buffer\n", ntohs(hdr->seq));
+			
 				maxRecievedSeq = ntohs(hdr->seq);
 				int n = addDataPayload(ntohs(hdr->seq), chunkBuf,rmsg);
 			}
@@ -281,20 +269,18 @@ void* fillSlidingWndRoutine(void * arg) {
 			respondAckOrDrop(sockfd, sockOptions, 0, targs->dropRate, hdr->ts);
 		}
 		else {
-			printf("P:Got a FIN\n");
+			printf("Producer:I got a FIN\n");
 			pthread_mutex_lock(&mtLock);
-			//printf("P: after acquiring lock\n");
 			Finish = 1;
-			//sendFinToConsumer(targs);
 
 			// Send a final ACK which should terminate the connection
 			respondAckOrDrop(sockfd, sockOptions, FIN_FLAG, targs->dropRate, hdr->ts);
 			pthread_mutex_unlock(&mtLock);
-			printf("wanna exit\n");
+
+			printf("Producer: Quitting the receive loop\n");
 			break;
 		}
 	}
-	//free(chunkBuf);
 	return NULL;
 }
 
@@ -302,34 +288,33 @@ void* fillSlidingWndRoutine(void * arg) {
 int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate, int recvTs) {
 	DtgHdr hdr;
 	bzero(&hdr, sizeof(hdr));
-	hdr.ack = htons(getAckToSend());
+	int ack = getAckToSend();
+
+	hdr.ack = htons(ack);
 	hdr.flags = htons(ACK_FLAG | addFlags);
-	printf("Adv window size: %d\n", availableWindowSize());
 	hdr.advWnd = htons(availableWindowSize());
-	hdr.ts = recvTs; //network
-	printf("P: respond with ACK:%d, flags: %d\n", ntohs(hdr.ack), ntohs(hdr.flags));
-	
+	hdr.ts = recvTs; //network	
 	MsgHdr msg;
 	bzero(&msg, sizeof(msg));	
-	
+
 	if(toDropMsg(dropRate) == 1 ){
-		//Ack dropped
-		printf("ACK dropped.\n");
+		printf("Producer: ACK %d was lost on its way to the server.\n", ack);
 		return 2;
 	}
-	printf("P:Gonna send msg\n");
+	
 	fillHdr2(&hdr, &msg, NULL, 0);
 	if (sendmsg(sockfd, &msg, sockOptions) == -1) {
-		printf("P:Error on send ack\n");
+		printf("Producer: Error on sending ACK %d\n", ack);
 		return 0;
 	}
-
+	if (addFlags == FIN_FLAG)
+		printf("Producer: responded with FIN+ACK %d\n", ack);
+	else
+		printf("Producer: responded with ACK %d, adv.windows size %d\n", ack, ntohs(hdr.advWnd));
 	return 1;
 }
 
 int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean, float dropRate) {
-	int res;
-	
 	ThreadArgs* targs = malloc(sizeof(struct threadArgs));
 	targs->sockfd = sockfd;
 	targs->fileName = fileName;
@@ -338,7 +323,7 @@ int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions
 	targs->mean = mean;
 	targs->dropRate = dropRate;
 	
-	res = allocateCircularBuffer(slidingWndSize);
+	int res = allocateCircularBuffer(slidingWndSize);
 	if (res == -1) {
 		printf("Circular buffer failed to allocate\n");
 		return 0;
@@ -369,16 +354,17 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 		MsgHdr smsg;
 		bzero(&smsg, sizeof(smsg));
 		
-		printf("Gonna send filename: %s, seq=%d\n", inputData->fileName, ntohs(sendHdr.seq));
+		printf("1st handshake: send file name: %s (SEQ=%d), advertising window: %d\n", inputData->fileName, ntohs(sendHdr.seq), inputData->slidWndSize);
 		fillHdr2(&sendHdr, &smsg, inputData->fileName, getDtgBufSize());
 		if(toDropMsg(dropRate) == 1){//simulate the dropping of first handshake
+			printf("Message with SEQ %d has been lost on the way to the server, try sending file name again", ntohs(sendHdr.seq));
 			continue;
 		}
 		if (sendmsg(sockfd, &smsg, 0) == -1) {
-			printf("Error on sendmsg\n");
+			printf("Error on sending the file name\n");
 			return 0;
 		}
-		printf("Sent it!\n");
+		printf("File name's been just sent, waiting for new server port...\n");
 
 		// if 2nd handshake within the timeout, try 1st handshake once more
 		if (readable_timeo(sockfd, MAX_SECS_REPLY_WAIT) > 0) {
@@ -389,27 +375,28 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 			char* buf = (char*)malloc(MAXLINE);
 			fillHdr2(&secondHsHdr, &rmsg, buf, MAXLINE);
 			if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
-				printf("Error on recvmsg\n");
+				printf("Error on receiving the port number\n");
 				return 0;
 			}
 			if(toDropMsg(dropRate) == 1){//this will simulate dthe dropping of second handshake
+				printf("The port number has been lost when coming to the client, try sending file name again\n");
 				continue;
 			}
 			*srvSeqNumber = ntohs(secondHsHdr.seq);
 			int tmp=0;
 			if (sscanf(buf, "%d", &tmp) == 0) {
-				printf("Server should have been sent port number but sent: %s\n", buf);
+				printf("Server should have been sent port number but sent a string: %s\n", buf);
 				return 1;
 			}
 
 			*newPort = tmp;
 
 			free(buf);
-			printf("Received 2nd handshake, port:%d, seq:%d, flags:%d\n", *newPort, *srvSeqNumber, ntohs(secondHsHdr.flags));
+			printf("2nd handshake: client has received port:%d (SEQ:%d), going to send out an ACK\n", *newPort, *srvSeqNumber);
 			return 1;			
 		}
 	}
-	printf("Didn't receive a 2nd handshake after %d times\n", MAX_TIMES_TO_SEND_FILENAME);
+	printf("Client didn't receive a valid 2nd handshake after %d times, give up.\n", MAX_TIMES_TO_SEND_FILENAME);
 	return 0;
 }
 
@@ -509,7 +496,7 @@ int addDataPayload(uint32_t s, char * c,MsgHdr* dp) {
 		return -1;
 	}
 	//printf("AddDataPayload: %s\n\n", c);
-	printf("P:expecting segment:%d, s=%u, start->occupied=%d\n", getAckToSend(), s, start->occupied);
+	//printf("P:expecting segment:%d, s=%u, start->occupied=%d\n", getAckToSend(), s, start->occupied);
 	//printBufferContents();
 
 	if(start->occupied == 0 && s == getAckToSend()){
@@ -519,7 +506,7 @@ int addDataPayload(uint32_t s, char * c,MsgHdr* dp) {
 		start->cptr =c;
 	}
 	else if(start->occupied ==0 && s != getAckToSend()){
-		printf("P: NOT EXPECTING THIS PACKET.\n");
+		//printf("P: NOT EXPECTING THIS PACKET.\n");
 	}
 	else{
 		int difference, i;
@@ -543,7 +530,7 @@ int addDataPayload(uint32_t s, char * c,MsgHdr* dp) {
 	return 1;//successfully added data
 }
 
-int consumeBuffer(FILE * fPointer) {
+int consumeBuffer() {
 	int count = 0;
 	if(start->occupied == 0){
 		return count;//nothing to read yet
@@ -556,12 +543,8 @@ int consumeBuffer(FILE * fPointer) {
 			//Write out the data to the File
 			MsgHdr *mptr = start->dataPayload;
 			char *toWrite = extractBuffFromHdr(*mptr);
-			//int seqNum = data[0].iov_base = hdr;
-			printf("Pack Sequence Number: %d\n Contents: %s\n", start->seqNum, start->cptr);
-			//fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
 
-			// ********
-
+			printf("*** Pack Sequence Number: %d *** \n Contents: %s\n******\n", start->seqNum, start->cptr);
 			start->occupied = 0;
 
 			free(start->dataPayload);
@@ -574,10 +557,13 @@ int consumeBuffer(FILE * fPointer) {
 	}
 	else{
 		count++;
-		//Write out the data to the File
 		MsgHdr *mptr = start->dataPayload;
 		char *toWrite = extractBuffFromHdr(*mptr);
-		fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
+		printf("*** Pack Sequence Number: %d *** \n Contents: %s\n******\n", start->seqNum, start->cptr);
+		//Write out the data to the File
+		//MsgHdr *mptr = start->dataPayload;
+		//char *toWrite = extractBuffFromHdr(*mptr);
+		//fwrite(toWrite, sizeof(toWrite), 1,  fPointer);
 
 		start->occupied = 0;
 		start->dataPayload=NULL;
