@@ -1,0 +1,46 @@
+[1mdiff --git a/client.c b/client.c[m
+[1mindex c8d0fd3..3ee14fb 100644[m
+[1m--- a/client.c[m
+[1m+++ b/client.c[m
+[36m@@ -169,8 +169,6 @@[m [mvoid* consumeChunkRoutine(void *arg) {[m
+ 		double sleep_time_s = (double) sleep_time_ms/1000;[m
+ 		sleep(sleep_time_s);[m
+ [m
+[31m-		//sleep(rand()%3);//5);//TODO: random[m
+[31m-[m
+ 		pthread_mutex_lock(&mtLock);[m
+ [m
+ 		int numConsumed = consumeBuffer(dlFile);[m
+[36m@@ -243,8 +241,6 @@[m [mvoid* fillSlidingWndRoutine(void * arg) {[m
+ 			break;[m
+ 		}[m
+ 		[m
+[31m-		//TODO: simulate dropping of receiving[m
+[31m-[m
+ 		int sentFlags = ntohs(hdr->flags);		[m
+ 		printf("P: received seq:%d, flags: %d\n", ntohs(hdr->seq), sentFlags);[m
+ 		if(toDropMsg(targs->dropRate) == 1){[m
+[36m@@ -311,7 +307,6 @@[m [mint respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRat[m
+ 	MsgHdr msg;[m
+ 	bzero(&msg, sizeof(msg));	[m
+ 	[m
+[31m-	//TODO: sim.dropping of ACKing[m
+ 	if(toDropMsg(dropRate) == 1 ){[m
+ 		//Ack dropped[m
+ 		printf("ACK dropped.\n");[m
+[36m@@ -391,7 +386,14 @@[m [mint sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat[m
+ 				return 0;[m
+ 			}[m
+ 			*srvSeqNumber = ntohs(secondHsHdr.seq);[m
+[31m-			*newPort = atoi(buf); //TODO: gotta check it[m
+[32m+[m			[32mint tmp=0;[m
+[32m+[m			[32mif (sscanf(buf, "%d", &tmp) == 0) {[m
+[32m+[m				[32mprintf("Server should have been sent port number but sent: %s\n", buf);[m
+[32m+[m				[32mreturn 1;[m
+[32m+[m			[32m}[m
+[32m+[m
+[32m+[m			[32m*newPort = tmp;[m
+[32m+[m
+ 			free(buf);[m
+ 			printf("Received 2nd handshake, port:%d, seq:%d, flags:%d\n", *newPort, *srvSeqNumber, ntohs(secondHsHdr.flags));[m
+ 			return 1;			[m

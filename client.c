@@ -169,8 +169,6 @@ void* consumeChunkRoutine(void *arg) {
 		double sleep_time_s = (double) sleep_time_ms/1000;
 		sleep(sleep_time_s);
 
-		//sleep(rand()%3);//5);//TODO: random
-
 		pthread_mutex_lock(&mtLock);
 
 		int numConsumed = consumeBuffer(dlFile);
@@ -243,8 +241,6 @@ void* fillSlidingWndRoutine(void * arg) {
 			break;
 		}
 		
-		//TODO: simulate dropping of receiving
-
 		int sentFlags = ntohs(hdr->flags);		
 		printf("P: received seq:%d, flags: %d\n", ntohs(hdr->seq), sentFlags);
 		if(toDropMsg(targs->dropRate) == 1){
@@ -311,7 +307,6 @@ int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRat
 	MsgHdr msg;
 	bzero(&msg, sizeof(msg));	
 	
-	//TODO: sim.dropping of ACKing
 	if(toDropMsg(dropRate) == 1 ){
 		//Ack dropped
 		printf("ACK dropped.\n");
@@ -391,7 +386,14 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 				return 0;
 			}
 			*srvSeqNumber = ntohs(secondHsHdr.seq);
-			*newPort = atoi(buf); //TODO: gotta check it
+			int tmp=0;
+			if (sscanf(buf, "%d", &tmp) == 0) {
+				printf("Server should have been sent port number but sent: %s\n", buf);
+				return 1;
+			}
+
+			*newPort = tmp;
+
 			free(buf);
 			printf("Received 2nd handshake, port:%d, seq:%d, flags:%d\n", *newPort, *srvSeqNumber, ntohs(secondHsHdr.flags));
 			return 1;			
