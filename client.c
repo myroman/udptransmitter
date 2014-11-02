@@ -371,7 +371,7 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 		
 		printf("Gonna send filename: %s, seq=%d\n", inputData->fileName, ntohs(sendHdr.seq));
 		fillHdr2(&sendHdr, &smsg, inputData->fileName, getDtgBufSize());
-		if(toDropRate(dropRate) == 1){//simulate the dropping of first handshake
+		if(toDropMsg(dropRate) == 1){//simulate the dropping of first handshake
 			continue;
 		}
 		if (sendmsg(sockfd, &smsg, 0) == -1) {

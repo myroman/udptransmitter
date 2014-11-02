@@ -1,13 +1,9 @@
 include Make.defines
 
-all: get_ifi_info_plus.o prifinfo_plus.o server client testClient testClient2 
-	${CC} -o prifinfo_plus prifinfo_plus.o get_ifi_info_plus.o ${LIBS}
+all: get_ifi_info_plus.o server client
 
 get_ifi_info_plus.o: get_ifi_info_plus.c
 	${CC} ${CFLAGS} -c get_ifi_info_plus.c ${UNP}
-
-prifinfo_plus.o: prifinfo_plus.c
-	${CC} ${CFLAGS} -c prifinfo_plus.c ${UNP}
 
 server: server.o input.o dtghdr.o fileChunking.o utils.o rtt.o
 	${CC} ${FLAGS} -o server server.o  input.o dtghdr.o fileChunking.o utils.o rtt.o ${LIBS}
@@ -28,20 +24,5 @@ utils.o: utils.c
 rtt.o: rtt.c
 	${CC} ${FLAGS} -c rtt.c ${UNP}
 
-CircularBufferNode: CircularBufferNode.o
-	${CC} ${FLAGS} -o CircularBufferNode CircularBufferNode.o  dtghdr.o ${LIBS}
-CircularBufferNode.o: CircularBufferNode.c
-	${CC} ${FLAGS} -c CircularBufferNode.c dtghdr.o ${UNP}	
-
-testClient: testClient.o
-	${CC} ${FLAGS} -o testClient testClient.o ${LIBS}
-testClient.o: testClient.c
-	${CC} ${FLAGS} -c testClient.c ${UNP}
-
-testClient2: testClient2.o
-	${CC} ${FLAGS} -o testClient2 testClient2.o ${LIBS}
-testClient2.o: testClient2.c
-	${CC} ${FLAGS} -c testClient2.c ${UNP}
-
 clean:
-	rm *.o prifinfo_plus server client  testClient testClient2  
+	rm *.o server client
