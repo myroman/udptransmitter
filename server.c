@@ -289,7 +289,7 @@ int removeNodesContents(uint32_t ack){
 * This function will increment the ACK count in the ACK Received field 
 * @ackRecv this is the ACK that came in 
 */
-void updateAckField(int ackRecv){
+int updateAckField(int ackRecv){
     ServerBufferNode * ptr = start;
     int count = 0;
     do{
@@ -297,10 +297,14 @@ void updateAckField(int ackRecv){
             ptr->ackCount++;
             //if acKcount is 3 we should fast retransmit
             //TODO
-            return;
+            if(ptr->ackCount== 3){
+                return 1;
+            }
+            return 0;;
         }
         ptr = ptr->right;
     } while(ptr != end->right);
+    return -1;
 }
 uint32_t getSeqNumber(){
     ++sequenceNumber;
@@ -845,14 +849,10 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
     //printBufferContents();
     int wsize = availableWindowSize();
     int tsize = getWindowSize();
-    printf("Total window size: %d, Available window size: %d\n", tsize, wsize);
-    ServerBufferNode * sbn = getOldestInTransitNode();
-    if(sbn == NULL){
-        printf("There are no currently intransit segments\n");
-    }
+    //printf("Total window size: %d, Available window size: %d\n", tsize, wsize);
     int numChunks, i, res, lastChunkRem, ret;
     char** chunks = chunkFile(fileName, &numChunks, &lastChunkRem);
-    printf("numChunks: %d, lastChunkRem: %d\n", numChunks, lastChunkRem);
+    printf("Number of Chunks in the file: %d, Last chunk in file contains: %d\n", numChunks, lastChunkRem);
     int cwin = 1;//initiall cwin = 1
     int ssthresh = cWinSize;//initially sstresh = client's revc window
     int numToSend, sent, received;
@@ -860,6 +860,11 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
     int cWinPercent= 0;
     int advWin = cWinSize;
     int totalSent = 0;
+    int fastRetransmitFlag=0;
+    int clientBuffFullFlag = 0;
+    sigset_t sigset_alrm;
+    sigemptyset(&sigset_alrm);
+    sigaddset(&sigset_alrm, SIGALRM);
     MsgHdr *msg;
     DtgHdr *hdr;
     signal(SIGALRM, sig_alarm);
@@ -884,6 +889,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
         //printf("minimum: %d\n", numToSend);
         sent = 0;
         //Mask out sig alarm
+        sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
         while(sent< numToSend && i < numChunks){
             //printf("i: %d, sent: %d\n", i, sent);
             //printf("Before: %d\n", getSeqNumber());
@@ -904,21 +910,25 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
             ++sent;
             ++i;
         }
-        //unmask
+        
         //printBufferContents();
      sendagain:
         //mask sigalarm
         //printBufferContents();
         //printf("Start: %d, end: %d\n", start->seq, end->seq);
         numToSend = minimum(cwin, advWin);
-        printf("Cwin: %d, ssthresh: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
+        if(clientBuffFullFlag == 1){
+            numToSend = 1;
+            //clientBuffFullFlag= 1;
+        }
+        printf("CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
         //printf("send again minimum: %d\n", numToSend);   
         sent = 0;
         ServerBufferNode * ptr = start;
         int adjustedNumTorecv=0;
         DtgHdr* hdr2 = getDtgHdrFromMsg(ptr->dataPayload);
         hdr2->ts  = htons(rtt_ts(&rttinfo));
-        printf("numToSend:%d\n", numToSend);
+        printf("Number of packets sending:%d\n", numToSend);
         while(sent < numToSend){
             if(ptr->occupied == 1){
                 rtt_newpack(&rttinfo);
@@ -930,26 +940,33 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
             ptr=ptr->right;
             sent++;
         }        
-
+        sigprocmask(SIG_UNBLOCK, &sigset_alrm, NULL);
         if(sigsetjmp(jmpbuf,1) != 0){
             tmpSbn = getOldestInTransitNode();
             //printf("RetrNum=%d for seq=%d", tmpSbn->retransNumber, tmpSbn->seq);
-
+            printf("Sigalarm Went off\n");
+            printf("SIGALARM: CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
             if (rtt_timeout(&rttinfo, tmpSbn) < 0) {
                 printf("\t\tToo many retransmissions, file transfer will be terminated\n");
                 rttinit = 0;
                 return 0;
             }
             //rtt_debug2(&rttinfo, "\t\tAbout to repeat");
-            if(cwin/2 >0){
-                ssthresh = cwin/2;
+            if(clientBuffFullFlag == 0){
+                printf("In clientBuffFullFlag == 0\n");
+                if(cwin/2 >0){
+                    ssthresh = cwin/2;
+                }
+                else{
+                    ssthresh = 1;
+                }
+                cwin = 1;
+                cWinPercent = 0;
+                ssFlag = 0;
             }
             else{
-                ssthresh = 1;
+                printf("Alarm is for probing purposes. Disgreard. Sending probe messages...\n");
             }
-            cwin = 1;
-            cWinPercent = 0;
-            ssFlag = 0;
             goto sendagain;
         }
 
@@ -980,9 +997,10 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
             
             if (res == -1) 
                 return;
+            sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
             int ack = ntohs(rhdr.ack);
             maxAckReceived = ack;
-            updateAckField(ack);
+            fastRetransmitFlag=updateAckField(ack);
             
             struct timeval tv;
             if(gettimeofday(&tv, NULL) != 0){
@@ -1020,12 +1038,28 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
             //printf("received: %d\n", received);
             //printf("received: %d\n", received);
             //testing++;
+            if(fastRetransmitFlag == 1 && toAdd == 0){
+                printf("FAST RETRANSMIT flag went off!\n");    
+                //Cancel timeout
+                //Resend oldest in transit. wait for packet to be read.
+                //proceed
+            }
+            if(advWin == 0){
+                clientBuffFullFlag = 1;
+                advWin = 0;
+                printf("CLIENTS BUFFER IS FULL\n");
+                alarm(0);
+                printf("clientBuff var: %d\n",clientBuffFullFlag );
+            }
+            else{
+                clientBuffFullFlag = 0;
+                printf("clientBuff var: %d\n",clientBuffFullFlag );
+            }
             if(ssFlag == 0){
                 ++cwin;
                 if(cwin>=ssthresh){
                     ssFlag = 1;
                     cWinPercent = 0;
-                    ++cWinPercent;
                 }                
             }
             else{
@@ -1038,6 +1072,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 }
             }
             alarm(0); //reset the alarm to zero
+            sigprocmask(SIG_UNBLOCK, &sigset_alrm, NULL);
         }
     }
     printf("File transfer complete\n");
