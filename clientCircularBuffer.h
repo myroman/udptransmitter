@@ -14,11 +14,10 @@ struct clientBufferNode{
 
 /*
 * This function is called when the consumer thread wakes up and wants to consume everything in the buffer
-* @fPointer - this is the file pointer that we will write the contents of the dataPayload to. 
 * @return - returns the number of nodes consumned
 */
 //int consumeBuffer(FILE * fPointer, ClientBufferNode * start, ClientBufferNode* end, ClientBufferNode* cHead);
-int consumeBuffer(FILE * fPointer);
+int consumeBuffer();
 /*
 * This function should be called when a new datagram is read. This function will add it to the circular buffer
 * @ s - uint32_t that will be the sequence number of the datagram received. This is of type int.
