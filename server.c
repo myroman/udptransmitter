@@ -963,9 +963,10 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 rto =1;
             }
             //int rtoi = (int)(rto+0.5);            
-            alarm(rto);            
+            alarm(rto);  
+
             ServerBufferNode* sbn2 = getOldestInTransitNode();
-            //printf("Sent SEQ=%u, TS=%u.Alarm with RTO=%f, delta=%d ms \n", sbn2->seq,sbn2->ts, rto, delta);
+            //printf("Alarm with RTO=%f, delta=%d ms \n", rto, delta);
             //rtt_debug2(&rttinfo, "alarm");
             //printf("In recv While loop\n");
             MsgHdr rmsg;

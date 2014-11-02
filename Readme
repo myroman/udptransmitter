@@ -14,7 +14,13 @@ we needed it else where. These structures made it easier to manage all the infor
 calculate longest prefix matching and if the client was local or not detection. 
 
 RTO Modifications for section 22.5 code:
-TODO:: ROMAN FILL IN PLEASE
+Firstly, we changed rtt_stop to use integer arithmetics instead of a float one. To do this we store 
+all relevant variables (including those from rtt_info) as integers. It also affected the calculation 
+of smoothed mean deviation estimator inside of rtt_stop, which started giving obviously 
+the wrong answer. To fix it we splitted its one-line formula into two lines. Next, the scale has been 
+changed from seconds to milliseconds, which resulted in using the coefficient of 1000 in rtt_init, 
+rtt_ts, and in unprtt.h. Finally, we replaced macros function RTT_RTOCALC with natural function calcRto
+because macroses are erron-prone, treat arithmetic syntax a bit differently and unclear in return value type.
 
 
 ARQ Mechanisms:
