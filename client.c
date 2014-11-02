@@ -23,13 +23,13 @@ uint32_t currentAck = 2;// = 0; //Never touch this variable. To access call getA
 int Finish = 0;
 
 void printBufferContents();
-int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN);
-int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost);
+int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqN, float dropRate);
+int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost, float dropRate);
 int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions, int seed, int mean, float dropRate);
 void* consumeChunkRoutine (void *arg);
 void* fillSlidingWndRoutine(void * arg);
 int respondAckOrDrop(size_t sockfd, int sockOptions, int addFlags, float dropRate, int recvTs);
-
+int toDropMsg(float dropRate);
 pthread_mutex_t mtLock = PTHREAD_MUTEX_INITIALIZER;
 
 int main()
@@ -100,7 +100,7 @@ int main()
 
 	int newSrvPort, srvSeqHost;
 	// 1st and 2nd handshakes
-	int res = sendFileNameAndGetNewServerPort(sockfd, sockOptions, inputData, &newSrvPort, &srvSeqHost);
+	int res = sendFileNameAndGetNewServerPort(sockfd, sockOptions, inputData, &newSrvPort, &srvSeqHost, inputData->dtLossProb);
 	if (res == 0) {
 		exit(1);
 	}
@@ -124,7 +124,7 @@ int main()
 	bzero(&smsg, sizeof(smsg));
 	printf("Reconnected to new server address %s:%d\n", inet_ntoa(servaddr.sin_addr), servaddr.sin_port);
 	//TODO simulate dropping for third Handshake
-	if (sendThirdHandshake(sockfd, sockOptions, srvSeqHost) == 0) {
+	if (sendThirdHandshake(sockfd, sockOptions, srvSeqHost, inputData->dtLossProb) == 0) {
 		return 1;
 	}
 	downloadFile(sockfd, inputData->fileName, inputData->slidWndSize, sockOptions, inputData->rndSeed, inputData->mean, inputData->dtLossProb);
@@ -132,7 +132,7 @@ int main()
 	return 0;
 }
 
-int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost) {
+int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost, float dropRate) {
 	DtgHdr hdr;
 	bzero(&hdr, sizeof(hdr));
 	hdr.ack = htons(lastSeqHost + 1);	
@@ -141,6 +141,11 @@ int sendThirdHandshake(int sockfd, int sockOptions, int lastSeqHost) {
 	
 	MsgHdr msg;
 	bzero(&msg, sizeof(msg));
+	if( toDropMsg(dropRate) ==1){
+		printf("3rd Handshake dropped.\n");
+		return 1;
+	}
+
 	
 	fillHdr2(&hdr, &msg, NULL, 0);	
 	if (sendmsg(sockfd, &msg, sockOptions) == -1) {
@@ -352,7 +357,7 @@ int downloadFile(int sockfd, char* fileName, int slidingWndSize, int sockOptions
 	return 1;
 }
 
-int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqNumber) {	
+int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputData, int* newPort, int* srvSeqNumber, float dropRate) {	
 	rmnl(inputData->fileName);
 
 	int	n, i;
@@ -366,7 +371,9 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 		
 		printf("Gonna send filename: %s, seq=%d\n", inputData->fileName, ntohs(sendHdr.seq));
 		fillHdr2(&sendHdr, &smsg, inputData->fileName, getDtgBufSize());
-
+		if(toDropRate(dropRate) == 1){//simulate the dropping of first handshake
+			continue;
+		}
 		if (sendmsg(sockfd, &smsg, 0) == -1) {
 			printf("Error on sendmsg\n");
 			return 0;
@@ -384,6 +391,9 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 			if ((n = recvmsg(sockfd, &rmsg, 0)) == -1) {
 				printf("Error on recvmsg\n");
 				return 0;
+			}
+			if(toDropMsg(dropRate) == 1){//this will simulate dthe dropping of second handshake
+				continue;
 			}
 			*srvSeqNumber = ntohs(secondHsHdr.seq);
 			int tmp=0;
