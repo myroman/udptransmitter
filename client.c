@@ -1,3 +1,6 @@
+//Soumadip Mukherjee ID: 108066531
+//Roman Pavlushchenko ID: 109952457
+
 #include "unpifiplus.h"
 #include <stdio.h>
 #include <string.h>
@@ -10,7 +13,7 @@
 #include <math.h>
 
 const int MAX_SECS_REPLY_WAIT = 5;
-const int MAX_TIMES_TO_SEND_FILENAME = 10;
+const int MAX_TIMES_TO_SEND_FILENAME = 12;
 const int MAX_TIMES_TO_GET_CHUNK = 12;
 	
 ClientBufferNode * cHead = NULL; 	//cHead is used to setup the circular buffer
