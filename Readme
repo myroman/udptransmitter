@@ -1,8 +1,15 @@
-udptransmitter
-==============
+Group Members:
+====================================
+Soumadip Mukherjee 	   ID: 108066531
+Roman Pavlushchenko    ID: 109952457
+====================================
 
-=== Server ===
+CSE 533 Assignment 2:
+====================================
 
+
+Operations ITEM 1:
+==================
 Socket Info Structures And get_ifi_info_plus.c : 
 We used the code provided in the get_ifi_info_plus.c file. This gave us the ability to walk
 over all our interface that we are attached to. For each of these interfaces we set up a 
@@ -13,6 +20,9 @@ mask and the  subnet mask. In addition we also had a reference to the socket its
 we needed it else where. These structures made it easier to manage all the information to 
 calculate longest prefix matching and if the client was local or not detection. 
 
+
+Adding reliability to UDP ITEM 1:
+=================================
 RTO Modifications for section 22.5 code:
 Firstly, we changed rtt_stop to use integer arithmetics instead of a float one. To do this we store 
 all relevant variables (including those from rtt_info) as integers. It also affected the calculation 
@@ -23,41 +33,62 @@ rtt_ts, and in unprtt.h. Finally, we replaced macros function RTT_RTOCALC with n
 because macroses are erron-prone, because they treat arithmetic syntax a bit differently and unclear in 
 return value type.
 Also we took into the account the workflow of our scenario. 
-Ideally we set an alarm using the calculated RTO value, but considering that generally we have workflow like this:
-SEND->SEND->SEND, RECEIVE->RECEIVE->RECEIVE, we adjust RTO using "our" delta which is difference between 
-the moment we received the ACK for chunk 1 and the moment we sent the chunk 2 to the client. Sometimes,
-esp. when there are many losses in network, the delta can be really big, though it should not be bigger
-than RTO itself, that is why when the difference between the RTO and delta is less than 1 second, that indicates
-that time has already passed. Thus, we set our timeout to 1 second the lower bound on RTT.
+Ideally we set an alarm using the calculated RTO value, but considering that generally we have workflow 
+like this: SEND->SEND->SEND, RECEIVE->RECEIVE->RECEIVE, we adjust RTO using "our" delta which is difference 
+between the moment we received the ACK for chunk 1 and the moment we sent the chunk 2 to the client. 
+Sometimes,esp. when there are many losses in network, the delta can be really big, though it should not 
+be bigger than RTO itself, that is why when the difference between the RTO and delta is less than 1 second,
+that indicates that time has already passed. Thus, we set our timeout to 1 second the lower bound on RTT.
 Next, the retransmission number is stored for every chunk separately, which forced us not to use
 rtt_newpack function; instead we assign retransNumber of the given node of the circular buffer.
 
+
+
+Adding reliability to UDP ITEM 2:
+=================================
 ARQ Mechanisms:
 Reliable Data transfer: We have implemented a circular buffer on both the client and the server.
 This is a doubly linked circular list that holds the information about our intransit 
 packets on the server side. And on the client side it is a similar doubly linked list that buffers
-the packets it has received. In the client, it maintains pointers for the segments that are inorder such that the
-consumer can wake up and consume all the buffer space in order. The client always acks the last inorder
-segment that it has received. On the server, we also have a start and end pointers. The start points to the oldest 
-in transit packet and the end points to the youngest intransit packet. This makes adding and deleting from our buffer
-much simpler. 
+the packets it has received. In the client, it maintains pointers for the segments that are inorder 
+such that the consumer can wake up and consume all the buffer space in order. The client always acks 
+the last inorder segment that it has received. On the server, we also have a start and end pointers. 
+The start points to the oldest in transit packet and the end points to the youngest intransit packet. 
+This makes adding and deleting from our buffer much simpler. The doubly linked structure greately 
+minimized the math that would have been necessary if it was an actual array. 
 
 Flow control:
-Out TCP header that we defined has a field that the client populates with every ACK that it sends. This 
-field contains the info about how many buffer slots the client has open at that present moment. When
-the server receives the ACK, he parses sets the client's receiving window to this freshly update value 
-that it just received. Before sending packets, the server takes the minimum across its cwin, client's 
-advertised window, and its available space in the buffer. This allows the server never to overwhelm the 
-clients receive buffer. 
+Our TCP header that we defined has a field that the client populates with every ACK that it sends. This 
+field contains the info about how many buffer slots(ie in our case nodes in the linked list) the client 
+has open at that present moment. When the server receives the ACK, he parses sets the client's receiving 
+window to this freshly update value that it just received. Before sending packets, the server takes the
+minimum across its cwin, client's advertised window, and its available space in the buffer. This allows 
+the server never to overwhelm the clients receive buffer. If the buffer of the server becomes zero, the
+server probes the client with the last positively acked message to get the updated available window of
+the client. 
 
 
 Slow Start:
 Cwin = 1 at the start and ssthresh equals the clients buffer space to start of with. While cwin is less
-than ssthresh, for every ack we get back we increment cwin by one. If cwin is greater than ssthresh, then we
-increment a value cwinPercent. When cwinPercent Modulo cwin == 0 then we increment cwin by one. In the event of
-dropped message we set ssthresh to cwin/2 and then sent cwin to 1.
+than ssthresh, for every ack we get back we increment cwin by one. If cwin is greater than ssthresh, 
+then we increment a value cWinPercent. When cwinPercent Modulo cwin == 0 then we increment cwin by one. 
+In the event of dropped message we set ssthresh to cwin/2 and then sent cwin to 1.
 
 Fast retransmit:
-In our circular buffer, there is a filed called ackcount. In this filed, we store how many acknowledges we have received
-for that packet. In the event that it becomes three we cancell the alarm and resend the packet that go the third
-duplicate ack. 
+In our circular buffer, there is a filed called ackcount. In this filed, we store how many acknowledgements 
+we have received for that packet. In the event that it becomes three we cancell the alarm and resend the 
+packet that got the third duplicate ack. The cwin and ssthresh values are update appropriately.
+ 
+
+Adding reliability to UDP ITEM 5:
+=================================
+Closing the connection:
+The server notifies the client that it is done transmitting the file by sending a FIN packet. We have a flags
+field in the header, that symbolizes what type of messages we are sending. We can send SYN, ACK, FIN. We set it
+up in a fashion such that you can send a SYN ACK message in the case of the second handshake beceause, it is 
+acking the filename that the client sent and sending the ephemeral port number. Thus, the message is one that 
+is an ack and syn. Fin symbolizes the the connection has ended. The client sends a FIN ACK back to the client 
+and finished. The (child) server picks ups the FIN ACK and terminates as well. The parent server catches 
+SIGCHILD and waits to catch the pid of the child server. Then removes the PID from the data structure 
+containing the information about which clients it is currently servering. 
+

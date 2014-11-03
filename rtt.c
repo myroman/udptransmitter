@@ -80,8 +80,6 @@ void rtt_stop(struct rtt_info *ptr, int ms)
 	int delta;
 
 	ptr->rtt_rtt = ms;		/* measured RTT in milliseconds */
-	printf("rtt=%u\n",ptr->rtt_rtt);
-
 	/*
 	 * Update our estimators of RTT and mean deviation of RTT.
 	 * See Jacobson's SIGCOMM '88 paper, Appendix A, for the details.
