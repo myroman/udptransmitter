@@ -7,6 +7,10 @@
 #include "fileChunking.h"
 #include <setjmp.h>
 #include "unprtt.h"
+
+const int MAX_TIMES_TO_SEND_OR_READ = 12;
+const int MAX_SECS_REPLY_WAIT = 5;
+
 static void sig_alarm(int signo);
 static void sig_alarm2(int signo);
 static sigjmp_buf jmpbuf;
@@ -14,8 +18,8 @@ static sigjmp_buf jmpbuf2;
 static struct rtt_info   rttinfo;
 static int  rttinit = 0;
 int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr);
-int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
-int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
+int sendNewPortNumber(int sockfd, int connfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz);
+int receiveThirdHandshake(int listeningFd, int connectionFd, MsgHdr * msg);
 int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize);
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq);
 int calcRtod(int delta);
@@ -656,21 +660,12 @@ int main (int argc, char ** argv){
                                     //sending 2nd handshake                                    
                                     MsgHdr smsg;
                                     bzero(&smsg, sizeof(smsg));
-                                    if ((res = sendNewPortNumber(sockets_info[i].sockfd, &smsg, ntohs(rHdr.seq), transSock.sin_port, (struct sockaddr_in*)&cliaddr, sizeof(cliaddr))) == 0) {
-                                        printf("Error when sending new port number\n");
+                                    if ((res = sendNewPortNumber(sockets_info[i].sockfd, transFd, &smsg, ntohs(rHdr.seq), transSock.sin_port, (struct sockaddr_in*)&cliaddr, sizeof(cliaddr))) == 0) {
                                         return;
                                     }
-
-                                    //Here we need to receive 3rd handshake
-                                    if((res = receiveThirdHandshake(&sockets_info[i].sockfd, &transFd, &smsg)) == 0) {
-                                        printf("Didn't receive ACK from client. Exiting...\n");
-                                    } else {
-                                        int lastSeq;
-                                    	if((res = startFileTransfer(fileName, transFd, transSockOptions, &lastSeq, clientWndSize, inputData->slidWndSize)) == 1) {
-                                            if ((res=finishConnection(transFd, transSockOptions, lastSeq)) == 1) {
-                                                
-                                            }
-                                        }
+                                    int lastSeq;
+                                    if((res = startFileTransfer(fileName, transFd, transSockOptions, &lastSeq, clientWndSize, inputData->slidWndSize)) == 1) {
+                                        res=finishConnection(transFd, transSockOptions, lastSeq);                                        
                                     }
                                 	exit(0);
                                 }
@@ -713,73 +708,86 @@ int resolveSockOptions(int sockNumber, struct sockaddr_in cliaddr) {
     return 0;
 }
 
-int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg) {
-	const int MAX_SECS_REPLY_WAIT = 5;
-	const int MAX_TIMES_TO_SEND_FILENAME = 3;
+int receiveThirdHandshake(int listeningFd, int connectionFd, MsgHdr * msg) {	
 	fd_set tset;
 	FD_ZERO(&tset);
 	int maxfd, i;
 	struct timeval tv;
     
-	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; i++){
+	for(i = 0; i < MAX_TIMES_TO_SEND_OR_READ; i++){
 		printf("Number of times sending retry: %d\n", i);
         tv.tv_sec = MAX_SECS_REPLY_WAIT;
     	tv.tv_usec = 0; 
 		FD_ZERO(&tset);
-		FD_SET(*connectionFd, &tset);
-		maxfd = *connectionFd + 1;
-		if(i != 0){
+		FD_SET(connectionFd, &tset);
+		maxfd = connectionFd + 1;
+		if(i != 0) {
 			//Send msg on connection socket
-			if (sendmsg(*connectionFd, msg, 0) == -1) {
+			if (sendmsg(connectionFd, msg, 0) == -1) {
 				printf("Error on sendmsg\n");
 				printf("Error on sendmsg\n");
 				return 0;
 			}
 
 			//Send msg on listening socket as well
-			if (sendmsg(*listeningFd, msg, 0) == -1) {
+			if (sendmsg(listeningFd, msg, 0) == -1) {
 				printf("Error on sendmsg on listenFd\n");
 				continue;
 			}
 		}
-		if((select(maxfd, &tset, NULL, NULL, &tv))){
-			if(FD_ISSET(*connectionFd, &tset)){
+        int res;
+		if((res = select(maxfd, &tset, NULL, NULL, &tv)) != 0) {
+			if(FD_ISSET(connectionFd, &tset)){
                 DtgHdr hdr;
                 MsgHdr msg;
                 fillHdr2(&hdr, &msg, NULL, 0);
-                if (recvmsg(*connectionFd, &msg, 0) == -1) {
+                if (recvmsg(connectionFd, &msg, 0) == -1) {
                     printf("Error when receiving 3rd handshake\n");
-                    continue;
+                    return 0;
                 }
                 printf("We received the 3nd handshake, ack:%d, flags:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
 				return 1;
 			}
-		}
+
+		} else if (res == 0) { // timeout, 
+            printf("Haven't gotten the 3nd handshake after the timeout, try send\n");
+            return 0;
+        }
 	}
 	return 0;
 }
 
 // 2nd handshake - sending the ephemeral port number
-int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz) {
+int sendNewPortNumber(int sockfd, int transfd, MsgHdr* pmsg, int lastSeqH, int newPort, struct sockaddr_in* cliaddr, size_t cliaddrSz) {
+    int i = 0;
     DtgHdr hdr;
-    bzero(&hdr, sizeof(hdr));
-    
-    hdr.seq = htons(1);
-    hdr.ack = htons(lastSeqH + 1);
-    hdr.flags = htons(ACK_FLAG);
-    
-    printf("Sending 2nd handshake: ACK=%d, flag:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
-    
-    char* portStr = malloc(10);
-    sprintf(portStr, "%d", newPort);
-    
-    fillHdr(&hdr, pmsg, portStr, getDtgBufSize(), (SA *)cliaddr, cliaddrSz);
-    printf("Resolved after 2nd handshake client address %s:%d\n", inet_ntoa(cliaddr->sin_addr), cliaddr->sin_port);
-    if (sendmsg(sockfd, pmsg, 0) == -1) {        
-        return 0;
+    for(i = 0;i < MAX_TIMES_TO_SEND_OR_READ; ++i) {
+        
+        bzero(&hdr, sizeof(hdr));
+        
+        hdr.seq = htons(1);
+        hdr.ack = htons(lastSeqH + 1);
+        hdr.flags = htons(ACK_FLAG);
+        
+        printf("Sending 2nd handshake: ACK=%d, flag:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
+        
+        char* portStr = malloc(10);
+        sprintf(portStr, "%d", newPort);
+        
+        fillHdr(&hdr, pmsg, portStr, getDtgBufSize(), (SA *)cliaddr, cliaddrSz);
+        printf("Resolved after 2nd handshake client address %s:%d\n", inet_ntoa(cliaddr->sin_addr), cliaddr->sin_port);
+        if (sendmsg(sockfd, pmsg, 0) == -1) {        
+            return 0;
+        }
+        printf("2nd handshake is sent, wait for ACK\n");
+
+        if (receiveThirdHandshake(sockfd, transfd, pmsg) == 0) {
+            printf("Didn't receive ACK from client. continiue...\n");
+            continue;
+        }
+        printf("Received ACK from client. Start file transfer\n");
+        return 1;
     }
-    printf("2nd handshake is sent\n");
-    return 1;
 }
 
 /*int startFileTransfer(const char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize) {
