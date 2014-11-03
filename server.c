@@ -514,7 +514,7 @@ int main (int argc, char ** argv){
                     printf("Error binding IP Address %s, Port number %d\n", inet_ntoa(ip_addr), inputData->servPort);
                     exit(0);
             }
-            printf("Sockfd: %d\n", sockfd);
+            printf("Socket file descriptor: %d\n", sockfd);
             
             //Remove later for testing Datagram channel 
             /*int n;
@@ -752,7 +752,7 @@ int receiveThirdHandshake(int listeningFd, int connectionFd, MsgHdr * msg) {
                     printf("Error when receiving 3rd handshake\n");
                     return 0;
                 }
-                printf("We received the 3nd handshake, ack:%d, flags:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
+                printf("We received the 3nd handshake, ACK:%d\n", ntohs(hdr.ack));
 				return 1;
 			}
 
@@ -776,7 +776,7 @@ int sendNewPortNumber(int sockfd, int transfd, MsgHdr* pmsg, int lastSeqH, int n
         hdr.ack = htons(lastSeqH + 1);
         hdr.flags = htons(ACK_FLAG);
         
-        printf("Sending 2nd handshake: ACK=%d, flag:%d\n", ntohs(hdr.ack), ntohs(hdr.flags));
+        printf("Sending 2nd handshake: ACK=%d\n", ntohs(hdr.ack));
         
         char* portStr = malloc(10);
         sprintf(portStr, "%d", newPort);
@@ -792,7 +792,7 @@ int sendNewPortNumber(int sockfd, int transfd, MsgHdr* pmsg, int lastSeqH, int n
             printf("Didn't receive ACK from client. continiue...\n");
             continue;
         }
-        printf("Received ACK from client. Start file transfer\n");
+        printf("Start file transfer\n");
         return 1;
     }
 }
@@ -969,7 +969,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 ptr->retransNumber = 0;
                 sendmsg(fd, ptr->dataPayload, sockOpts);
                 ++adjustedNumToRecv;
-                printf("Sent packet with sequence number: %d\n", ptr->seq);
+                printf("Sent packet with SEQ %d\n", ptr->seq);
             }
             ptr = ptr->right;
             sent++;
@@ -1019,13 +1019,13 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 bzero(&rhdr, sizeof(rhdr));  
                 bzero(&rmsg, sizeof(rmsg));     
                 fillHdr2(&rhdr, &rmsg, NULL, 0);
-                printf("Waiting to receive...\n");
+                printf("Waiting to receive ACK...\n");
                 res = recvmsg(fd, &rmsg, 0);
                 //printf("Received msg\n");
                 alarm(0);
                 int ack = ntohs(rhdr.ack);
                 maxAckReceived = ack;
-                printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+                printf("Received ACK=%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.advWnd));
 
                 sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
                 int tripleDupAck = updateAckField(ack);
@@ -1214,7 +1214,7 @@ int finishConnection(size_t sockfd, int sockOpts, int lastSeq) {
     bzero(&msg, sizeof(msg));
     fillHdr2(&hdr, &msg, NULL, 0);
   sendagain2:
-    printf("Finish connection, send seq:%d, flags:%d\n", ntohs(hdr.seq), ntohs(hdr.flags));
+    printf("Finish connection, send SEQ:%d\n", ntohs(hdr.seq));
     int res = sendmsg(sockfd, &msg, sockOpts);
     if (res == -1) {
         printf("Error when sending a FIN\n");
