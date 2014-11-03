@@ -22,13 +22,15 @@ changed from seconds to milliseconds, which resulted in using the coefficient of
 rtt_ts, and in unprtt.h. Finally, we replaced macros function RTT_RTOCALC with natural function calcRto
 because macroses are erron-prone, because they treat arithmetic syntax a bit differently and unclear in 
 return value type.
-Finally, we took into the account the workflow of our scenario. 
+Also we took into the account the workflow of our scenario. 
 Ideally we set an alarm using the calculated RTO value, but considering that generally we have workflow like this:
 SEND->SEND->SEND, RECEIVE->RECEIVE->RECEIVE, we adjust RTO using "our" delta which is difference between 
 the moment we received the ACK for chunk 1 and the moment we sent the chunk 2 to the client. Sometimes,
 esp. when there are many losses in network, the delta can be really big, though it should not be bigger
 than RTO itself, that is why when the difference between the RTO and delta is less than 1 second, that indicates
 that time has already passed. Thus, we set our timeout to 1 second the lower bound on RTT.
+Next, the retransmission number is stored for every chunk separately, which forced us not to use
+rtt_newpack function; instead we assign retransNumber of the given node of the circular buffer.
 
 ARQ Mechanisms:
 Reliable Data transfer: We have implemented a circular buffer on both the client and the server.
