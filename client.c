@@ -372,7 +372,6 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 		printf("File name's been just sent, waiting for new server port...\n");
 		int j = 0;
 		for(j = 0; j< 3 ; j++ ){
-			printf("j: %d\n", j);
 			// if 2nd handshake within the timeout, try 1st handshake once more
 			if (readable_timeo(sockfd, MAX_SECS_REPLY_WAIT) > 0) {
 				// Read server ephemeral port number
@@ -403,6 +402,7 @@ int sendFileNameAndGetNewServerPort(int sockfd, int sockOptions, InpCd* inputDat
 				return 1;			
 			}
 		}
+		printf("Client didn't receive a valid 2nd handshake after %d times, give up.\n", MAX_TIMES_TO_SEND_FILENAME);
 		return 0;
 	}
 	printf("Client didn't receive a valid 2nd handshake after %d times, give up.\n", MAX_TIMES_TO_SEND_FILENAME);

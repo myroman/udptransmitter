@@ -292,6 +292,7 @@ int removeNodesContents(uint32_t ack){
 * @ackRecv this is the ACK that came in 
 */
 int updateAckField(int ackRecv){
+    //printf("In updateAckField function\n");
     ServerBufferNode * ptr = start;
     int count = 0;
     do{
@@ -299,7 +300,9 @@ int updateAckField(int ackRecv){
             ptr->ackCount++;
             //if acKcount is 3 we should fast retransmit
             //TODO
-            if(ptr->ackCount== 3){
+            if(ptr->ackCount >= 3){
+                //printf("\n\n\nFOUND TRIPLE ACK\n\n\n");
+                ptr->ackCount = 0;
                 return 1;
             }
             return 0;;
@@ -348,7 +351,7 @@ int addNodeContents(int seqNum, MsgHdr * data){
         //  return -1;//this should never happen of we maintain the window properly
 
         ptr->seq = seqNum;
-        ptr->ackCount = 0;
+        ptr->ackCount =0;
         ptr->occupied = 1;//symbolizes that this buffer is occupied
         ptr->dataPayload = data;//assign the data payload that is going to be maintaine
         ptr->retransNumber = 0;
@@ -718,7 +721,8 @@ int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg) {
 	struct timeval tv;
     
 	for(i = 0; i < MAX_TIMES_TO_SEND_FILENAME; i++){
-		tv.tv_sec = MAX_SECS_REPLY_WAIT;
+		printf("Number of times sending retry: %d\n", i);
+        tv.tv_sec = MAX_SECS_REPLY_WAIT;
     	tv.tv_usec = 0; 
 		FD_ZERO(&tset);
 		FD_SET(*connectionFd, &tset);
@@ -727,10 +731,6 @@ int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg) {
 			//Send msg on connection socket
 			if (sendmsg(*connectionFd, msg, 0) == -1) {
 				printf("Error on sendmsg\n");
-				return;
-				printf("Error on sendmsg on connectionFd\n");
-				continue;
-				//return;
 				printf("Error on sendmsg\n");
 				return 0;
 			}
@@ -901,6 +901,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
       FillBuffer:  
         numToAddToBuffer = minimum(cwin, advWin);
         printf("Adding to Buffer: CWIN: %d, SSTHRESH: %d, Clients Advertised Window: %d, My Buffer Space: %d\n", cwin, ssthresh,advWin, availableWindowSize());
+        
         addedToBuffer = 0;
         sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
         if(numToAddToBuffer != 0){
@@ -938,6 +939,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
         else{
             printf("Congestion Avoidance phase\n");
         }
+        printBufferContents();
         sent = 0;
         ServerBufferNode *ptr = start;
         int adjustedNumToRecv=0;
@@ -998,6 +1000,23 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 maxAckReceived = ack;
                 printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
                 sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
+                int tripleDupAck = updateAckField(ack);
+                if(tripleDupAck == 1){
+                    printf("FAST RETRANSMIT: We need to fast retransmit.\n\n");
+                    alarm(0);//cancell alarm
+                    if(cwin / 2 > 0){
+                        ssthresh = cwin / 2;
+                    }
+                    else{
+                        ssthresh = 1;
+                    }
+                    cwin = 1;
+                    ssFlag = 0;
+                    cWinPercent = 0;
+                    printf("Handling Fast retransmit. Canceling alarm and sending packet %d again.\n", ack);
+                    goto SendPackets;
+                    //Take care of cwin and ssthreash
+                }
                 int rValRemove = removeNodesContents(ack);
                 recvCount += rValRemove;
                 advWin = ntohs(rhdr.advWnd);
@@ -1085,6 +1104,23 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                     maxAckReceived = ack;
                     printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
                     sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
+                    int tripleDupAck = updateAckField(ack);
+                    if(tripleDupAck == 1){
+                        printf("FAST RETRANSMIT: We need to fast retransmit.\n\n");
+                        alarm(0);//cancell alarm
+                        if(cwin / 2 > 0){
+                            ssthresh = cwin / 2;
+                        }
+                        else{
+                            ssthresh = 1;
+                        }
+                        cwin = 1;
+                        ssFlag = 0;
+                        cWinPercent = 0;
+                        printf("Handling Fast retransmit. Canceling alarm and sending packet %d again.\n", ack);
+                        goto SendPackets;
+                        //Take care of cwin and ssthreash
+                    }
                     int rValRemove = removeNodesContents(ack);
                     amountReceived += rValRemove;
                     advWin = ntohs(rhdr.advWnd);

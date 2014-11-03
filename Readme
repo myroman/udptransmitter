@@ -32,11 +32,13 @@ that time has already passed. Thus, we set our timeout to 1 second the lower bou
 
 ARQ Mechanisms:
 Reliable Data transfer: We have implemented a circular buffer on both the client and the server.
-This is a doubly linked circular linked list that holds the information about our intransit 
+This is a doubly linked circular list that holds the information about our intransit 
 packets on the server side. And on the client side it is a similar doubly linked list that buffers
-the packets it has received. It maintains pointers for the segments that are inorder such that the
+the packets it has received. In the client, it maintains pointers for the segments that are inorder such that the
 consumer can wake up and consume all the buffer space in order. The client always acks the last inorder
-segment that it has received.
+segment that it has received. On the server, we also have a start and end pointers. The start points to the oldest 
+in transit packet and the end points to the youngest intransit packet. This makes adding and deleting from our buffer
+much simpler. 
 
 Flow control:
 Out TCP header that we defined has a field that the client populates with every ACK that it sends. This 
@@ -49,4 +51,11 @@ clients receive buffer.
 
 Slow Start:
 Cwin = 1 at the start and ssthresh equals the clients buffer space to start of with. While cwin is less
-than ssthresh, for every ack we get back we increment 
+than ssthresh, for every ack we get back we increment cwin by one. If cwin is greater than ssthresh, then we
+increment a value cwinPercent. When cwinPercent Modulo cwin == 0 then we increment cwin by one. In the event of
+dropped message we set ssthresh to cwin/2 and then sent cwin to 1.
+
+Fast retransmit:
+In our circular buffer, there is a filed called ackcount. In this filed, we store how many acknowledges we have received
+for that packet. In the event that it becomes three we cancell the alarm and resend the packet that go the third
+duplicate ack. 
