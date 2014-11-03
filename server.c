@@ -18,6 +18,7 @@ int sendNewPortNumber(int sockfd, MsgHdr* pmsg, int lastSeqH, int newPort, struc
 int receiveThirdHandshake(int * listeningFd, int * connectionFd, MsgHdr * msg);
 int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cWinSize, int myWinSize);
 int finishConnection(size_t sockfd, int sockOpts, int lastSeq);
+int calcRtod(int delta);
 SocketInfo * sockets_info;
 int sockInfoLength = 0; 
 //We will malloc space for this later when we know how many sockes we have
@@ -946,7 +947,7 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
         printf("Number of packets sending:%d\n", numToSend);
         while(sent < numToSend){
             if(ptr->occupied == 1){
-                //rtt_newpack(&rttinfo);
+                ptr->retransNumber = 0;
                 sendmsg(fd, ptr->dataPayload, sockOpts);
                 ++adjustedNumToRecv;
                 printf("Sent packet with sequence number: %d\n", ptr->seq);
@@ -964,6 +965,15 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 goto SendPackets;
             }
             else{
+                tmpSbn = getOldestInTransitNode();
+                //printf("RetrNum=%d for seq=%d", tmpSbn->retransNumber, tmpSbn->seq);
+
+                if (rtt_timeout(&rttinfo, tmpSbn) < 0) {
+                    printf("\t\tToo many retransmissions of SEQ %d, file transfer will be terminated\n", tmpSbn->seq);
+                    rttinit = 0;
+                    return 0;
+                }
+
                 printf("Actual time out\n");
                 if(cwin / 2 > 0){
                     ssthresh = cwin / 2;
@@ -977,14 +987,13 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 alarm(2);
                 goto SendPackets;
             }
-
         }
-
         
         if(availableWindowSize() == 0){
             int recvCount = 0;
-            while(recvCount < getWindowSize()){   
-                alarm(2);
+            while(recvCount < getWindowSize()){                   
+                alarm(calcRtod(delta)); 
+
                 MsgHdr rmsg;
                 DtgHdr rhdr;
                 bzero(&rhdr, sizeof(rhdr));  
@@ -997,7 +1006,9 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                 int ack = ntohs(rhdr.ack);
                 maxAckReceived = ack;
                 printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+
                 sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
+
                 int rValRemove = removeNodesContents(ack);
                 recvCount += rValRemove;
                 advWin = ntohs(rhdr.advWnd);
@@ -1071,7 +1082,8 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
             else{
                 int amountReceived =0;
                 while(amountReceived < adjustedNumToRecv){
-                    alarm(2);
+                    alarm(calcRtod(delta));
+
                     MsgHdr rmsg;
                     DtgHdr rhdr;
                     bzero(&rhdr, sizeof(rhdr));  
@@ -1084,8 +1096,32 @@ int startFileTransfer(char* fileName, int fd, int sockOpts, int* lastSeq, int cW
                     int ack = ntohs(rhdr.ack);
                     maxAckReceived = ack;
                     printf("Received ACK=%d, flags:%d, Advertised Window Size:%d\n", ack, ntohs(rhdr.flags), ntohs(rhdr.advWnd));
+
                     sigprocmask(SIG_BLOCK, &sigset_alrm, NULL);
-                    int rValRemove = removeNodesContents(ack);
+
+                    struct timeval tv;
+                    if(gettimeofday(&tv, NULL) != 0){
+                        printf("Error getting time to set to packet.\n");
+                        return -1;
+                    }
+                    int now = ((tv.tv_sec * 1000) + tv.tv_usec / 1000); //this will get the timestamp in msec
+                    ServerBufferNode* oldestItmNode = getOldestInTransitNode();
+                    int b = oldestItmNode->ts, 
+                        roundTripTime = now - b, 
+                        rValRemove = removeNodesContents(ack),
+                        c = 0;
+                    oldestItmNode = getOldestInTransitNode();
+                    if (oldestItmNode != NULL) {
+                        c = oldestItmNode->ts;
+                        // delta is needed here to simulate the time as if it is Reply-Answer, Reply-Answer scenario
+                        if (wasResending == 0) {
+                            //printf("\tExtracted from ACK=%d TS=%d",ntohs(h->ack), ntohs(h->ts));
+                            delta = now - c;
+                        }
+                    }
+                    printf("RTT: %d, DELTA: %d, b:%d, c:%d\n", roundTripTime, delta, b, c);
+                    rtt_stop(&rttinfo, roundTripTime);
+
                     amountReceived += rValRemove;
                     advWin = ntohs(rhdr.advWnd);
                     if(rValRemove != 0){
@@ -1172,4 +1208,12 @@ static void sig_alarm(int signo){
 static void sig_alarm2(int signo){
     printf("SIGALRM2 WENT OFF\n");
     siglongjmp(jmpbuf2,1);
+}
+
+int calcRtod(int delta) {
+    float rto = (rtt_start(&rttinfo) - delta)/ 1000.0; // 0.9999
+    if(rto < 1.0){
+        rto = 1;
+    }
+    return (int)rto;
 }
