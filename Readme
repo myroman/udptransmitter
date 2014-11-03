@@ -16,7 +16,7 @@ over all our interface that we are attached to. For each of these interfaces we 
 listening socket. We of course skipped the broadcast address as specified by the book. For 
 each interface that we found we defined a data struct called socketInfo. Inside this struct 
 we stored the socket file descriptor, the in_addr structuress for the ip addres, the network 
-mask and the  subnet mask. In addition we also had a reference to the socket itself incase 
+mask and the  subnet mask. In addition we also had a reference to the socket itself in case 
 we needed it else where. These structures made it easier to manage all the information to 
 calculate longest prefix matching and if the client was local or not detection. 
 
@@ -26,21 +26,20 @@ Adding reliability to UDP ITEM 1:
 RTO Modifications for section 22.5 code:
 Firstly, we changed rtt_stop to use integer arithmetics instead of a float one. To do this we store 
 all relevant variables (including those from rtt_info) as integers. It also affected the calculation 
-of smoothed mean deviation estimator inside of rtt_stop, which started giving obviously 
-the wrong answer. To fix it we split the one-line formula into two lines. Next, the scale has been 
-changed from seconds to milliseconds, which resulted in using the coefficient of 1000 in rtt_init, 
-rtt_ts, and in unprtt.h. Finally, we replaced macros function RTT_RTOCALC with natural function calcRto
-because macroses are erron-prone, because they treat arithmetic syntax a bit differently and unclear in 
-return value type.
-Also we took into the account the workflow of our scenario. 
-Ideally we set an alarm using the calculated RTO value, but considering that generally we have workflow 
-like this: SEND->SEND->SEND, RECEIVE->RECEIVE->RECEIVE, we adjust RTO using "our" delta which is difference 
-between the moment we received the ACK for chunk 1 and the moment we sent the chunk 2 to the client. 
-Sometimes,esp. when there are many losses in network, the delta can be really big, though it should not 
-be bigger than RTO itself, that is why when the difference between the RTO and delta is less than 1 second,
-that indicates that time has already passed. Thus, we set our timeout to 1 second the lower bound on RTT.
-Next, the retransmission number is stored for every chunk separately, which forced us not to use
-rtt_newpack function; instead we assign retransNumber of the given node of the circular buffer.
+of smoothed mean deviation estimator inside of rtt_stop, which started giving obviously the wrong answer. 
+To fix it we split the one-line formula into two lines. Next, the scale has been changed from seconds 
+to milliseconds, which resulted in using the coefficient of 1000 in rtt_init, rtt_ts, and in unprtt.h. 
+Finally, we replaced macros function RTT_RTOCALC with natural function calcRto because macroses are 
+erron-prone, because they treat arithmetic syntax a bit differently and unclear in return value type.
+Also we took into the account the workflow of our scenario. Ideally we set an alarm using the calculated
+RTO value, but considering that generally we have workflow like this: 
+SEND->SEND->SEND, RECEIVE->RECEIVE->RECEIVE, we adjust RTO using "our" delta which is difference between 
+the moment we received the ACK for chunk N and the moment we sent the chunk N+1 to the client. Sometimes,
+esp. when there are many losses in network, the delta can be really big, though it should not be bigger
+than RTO itself, that is why when the difference between the RTO and delta is less than 1 second, that
+indicates that time has already passed. Thus, we set our timeout to 1 second which is the lower bound on RTT.
+Next, the retransmission number is stored for every chunk separately, which forced us not to use rtt_newpack
+function; instead we assign retransNumber of the given node of the circular buffer.
 
 
 
@@ -54,7 +53,7 @@ the packets it has received. In the client, it maintains pointers for the segmen
 such that the consumer can wake up and consume all the buffer space in order. The client always acks 
 the last inorder segment that it has received. On the server, we also have a start and end pointers. 
 The start points to the oldest in transit packet and the end points to the youngest intransit packet. 
-This makes adding and deleting from our buffer much simpler. The doubly linked structure greately 
+This makes adding and deleting from our buffer much simpler. The doubly linked structure greatly 
 minimized the math that would have been necessary if it was an actual array. 
 
 Flow control:
@@ -75,7 +74,7 @@ then we increment a value cWinPercent. When cwinPercent Modulo cwin == 0 then we
 In the event of dropped message we set ssthresh to cwin/2 and then sent cwin to 1.
 
 Fast retransmit:
-In our circular buffer, there is a filed called ackcount. In this filed, we store how many acknowledgements 
+In our circular buffer, there is a filed called ackcount. In this field, we store how many acknowledgements 
 we have received for that packet. In the event that it becomes three we cancell the alarm and resend the 
 packet that got the third duplicate ack. The cwin and ssthresh values are update appropriately.
  
@@ -85,9 +84,9 @@ Adding reliability to UDP ITEM 5:
 Closing the connection:
 The server notifies the client that it is done transmitting the file by sending a FIN packet. We have a flags
 field in the header, that symbolizes what type of messages we are sending. We can send SYN, ACK, FIN. We set it
-up in a fashion such that you can send a SYN ACK message in the case of the second handshake beceause, it is 
+up in a fashion such that you can send a SYN ACK message in the case of the second handshake because, it is 
 acking the filename that the client sent and sending the ephemeral port number. Thus, the message is one that 
-is an ack and syn. Fin symbolizes the the connection has ended. The client sends a FIN ACK back to the client 
+is an ack and syn. FIN symbolizes the the connection has ended. The client sends a FIN ACK back to the client 
 and finished. The (child) server picks ups the FIN ACK and terminates as well. The parent server catches 
 SIGCHILD and waits to catch the pid of the child server. Then removes the PID from the data structure 
 containing the information about which clients it is currently servering. 
